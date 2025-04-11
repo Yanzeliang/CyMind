@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+        }
+        .summary {
+            background-color: #f9f9f9;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .vulnerability {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-left: 4px solid #e74c3c;
+            background-color: #f8f9fa;
+        }
+        .high-risk {
+            border-left-color: #e74c3c;
+        }
+        .medium-risk {
+            border-left-color: #f39c12;
+        }
+        .low-risk {
+            border-left-color: #2ecc71;
+        }
+        .risk-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            color: white;
+            font-weight: bold;
+            font-size: 0.8em;
+        }
+        .high-badge {
+            background-color: #e74c3c;
+        }
+        .medium-badge {
+            background-color: #f39c12;
+        }
+        .low-badge {
+            background-color: #2ecc71;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ title }}</h1>
+        <p>报告生成时间: {{ date }}</p>
+    </div>
+
+    <div class="summary">
+        <h2>扫描摘要</h2>
+        <p>总漏洞数: {{ summary.total_vulnerabilities }}</p>
+        <p>高危漏洞: <span class="risk-badge high-badge">{{ summary.high_risk }}</span></p>
+        <p>中危漏洞: <span class="risk-badge medium-badge">{{ summary.medium_risk }}</span></p>
+        <p>低危漏洞: <span class="risk-badge low-badge">{{ summary.low_risk }}</span></p>
+    </div>
+
+    <div class="vulnerabilities">
+        <h2>漏洞详情</h2>
+        {% for vuln in results.vulnerabilities %}
+        <div class="vulnerability {{ vuln.severity }}-risk">
+            <h3>{{ vuln.name }}</h3>
+            <p><strong>风险等级:</strong> 
+                <span class="risk-badge {{ vuln.severity }}-badge">
+                    {{ vuln.severity }}
+                </span>
+            </p>
+            <p><strong>目标:</strong> {{ vuln.target }}</p>
+            <p><strong>描述:</strong> {{ vuln.description }}</p>
+            <p><strong>解决方案:</strong> {{ vuln.solution }}</p>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>
