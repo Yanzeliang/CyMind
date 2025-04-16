@@ -110,9 +110,11 @@ class Scanner:
                 'scan_id': result.id
             }
         except Exception as e:
+            logger.error(f"扫描过程中发生异常: {str(e)}", exc_info=True)
             return {
-                'status': 'error',
-                'message': str(e)
+                'status': 'error', 
+                'message': str(e),
+                'details': str(e.__class__)
             }
     
     def _vulnerability_scan(self, target: Dict) -> Dict:
