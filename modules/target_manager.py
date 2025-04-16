@@ -5,6 +5,15 @@ from typing import List, Dict
 class TargetManager:
     def __init__(self):
         self.targets = []  # 临时使用内存存储
+        # 添加默认测试目标
+        self.targets.append({
+            'id': 1,
+            'name': 'NMAP测试目标',
+            'url': 'scanme.nmap.org',
+            'ip': '45.33.32.156',
+            'type': 'test',
+            'created_at': ''
+        })
         
     def add_target(self, target_data: Dict) -> None:
         """添加单个目标"""

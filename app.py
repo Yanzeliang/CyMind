@@ -2,12 +2,15 @@ from flask import Flask, render_template, request, jsonify
 import subprocess
 import os
 import json
+import logging
 from models import Session, ScanResult
 from modules.target_manager import TargetManager
 from modules.scanner import Scanner
 from modules.reporter import Reporter
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # 初始化各模块
 target_manager = TargetManager()

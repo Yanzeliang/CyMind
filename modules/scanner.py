@@ -1,7 +1,10 @@
 import subprocess
 import json
+import logging
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger(__name__)
 
 class Scanner:
     def __init__(self):
@@ -47,30 +50,41 @@ class Scanner:
     
     def _port_scan(self, target: Dict) -> Dict:
         """端口扫描实现"""
-        import nmap
         from ..models import Session, ScanResult
         import json
+        import subprocess
+        import re
         
-        scanner = nmap.PortScanner()
+        logger.info(f"开始端口扫描: {target['url']}")
         
         try:
-            # 执行快速端口扫描
-            scanner.scan(hosts=target['url'], arguments='-T4 -F')
+            # 执行系统nmap命令
+            cmd = f"nmap -T4 -F -oG - {target['url']}"
+            logger.debug(f"执行命令: {cmd}")
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
             
-            # 解析扫描结果
+            if result.returncode != 0:
+                logger.error(f"扫描失败: {result.stderr}")
+                return {"status": "error", "message": result.stderr}
+                
+            # 解析nmap输出
             scan_results = []
-            for host in scanner.all_hosts():
-                for proto in scanner[host].all_protocols():
-                    ports = scanner[host][proto].keys()
-                    for port in ports:
+            for line in result.stdout.split('\n'):
+                if 'Ports:' in line:
+                    parts = re.findall(r'(\d+)/\w+/(\w+)/\w+/(\w+)', line)
+                    for port, state, service in parts:
                         scan_results.append({
-                            'port': port,
-                            'protocol': proto,
-                            'state': scanner[host][proto][port]['state'],
-                            'service': scanner[host][proto][port]['name']
+                            'port': int(port),
+                            'state': state,
+                            'service': service
                         })
             
+            if not scan_results:
+                logger.error(f"无开放端口: {target['url']}")
+                return {"status": "error", "message": "无开放端口"}
+            
             # 保存到数据库
+            logger.debug(f"准备保存扫描结果: {scan_results}")
             session = Session()
             try:
                 result = ScanResult(
@@ -81,8 +95,10 @@ class Scanner:
                 session.add(result)
                 session.commit()
                 session.refresh(result)
+                logger.info(f"扫描结果已保存，ID: {result.id}")
             except Exception as e:
                 session.rollback()
+                logger.error(f"数据库保存失败: {str(e)}")
                 raise e
             finally:
                 session.close()
