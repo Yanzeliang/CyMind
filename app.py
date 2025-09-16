@@ -73,11 +73,23 @@ def get_scan_details(scan_id):
     result = session.query(ScanResult).filter_by(id=scan_id).first()
     if not result:
         return jsonify({"status": "error", "message": "记录不存在"})
+    raw_result = json.loads(result.result)
+
+    if result.scan_type == 'port_scan':
+        if isinstance(raw_result, dict) and 'ports' in raw_result:
+            formatted_result = raw_result
+        elif isinstance(raw_result, list):
+            formatted_result = {'ports': raw_result}
+        else:
+            formatted_result = {'raw': raw_result}
+    else:
+        formatted_result = raw_result
+
     return jsonify({
         'id': result.id,
         'target': result.target,
         'scan_type': result.scan_type,
-        'result': json.loads(result.result),
+        'result': formatted_result,
         'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S')
     })
 

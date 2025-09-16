@@ -266,17 +266,89 @@ function monitorScanProgress(scanId) {
 function displayScanResults(results) {
     const resultsContainer = document.getElementById('scan-results');
     resultsContainer.innerHTML = '';
-    
-    if (results.ports) {
-        results.ports.forEach(port => {
-            const portItem = document.createElement('div');
-            portItem.className = 'port-item p-3 mb-2 bg-light rounded';
-            portItem.innerHTML = `
-                <strong>端口:</strong> ${port.port} (${port.protocol})<br>
-                <strong>服务:</strong> ${port.service}<br>
-                <strong>状态:</strong> ${port.state}
-            `;
-            resultsContainer.appendChild(portItem);
-        });
+
+    const message = typeof results.message === 'string' ? results.message : '';
+    const ports = Array.isArray(results.ports) ? results.ports : [];
+
+    renderPortResults(resultsContainer, ports, message);
+}
+
+function displayPortScanResults(resultData) {
+    const detailsContainer = document.getElementById('scan-details');
+    detailsContainer.innerHTML = '';
+
+    const { ports, message, raw } = normalisePortScanResult(resultData);
+
+    if (raw) {
+        detailsContainer.innerHTML = `
+            <div class="alert alert-secondary">
+                当前扫描结果格式不受支持，显示原始数据。
+            </div>
+            <pre class="p-3 bg-light rounded border">${JSON.stringify(raw, null, 2)}</pre>
+        `;
+        return;
     }
+
+    renderPortResults(detailsContainer, ports, message);
+}
+
+function normalisePortScanResult(resultData) {
+    if (Array.isArray(resultData)) {
+        return { ports: resultData, message: '', raw: null };
+    }
+
+    if (resultData && typeof resultData === 'object') {
+        if (Array.isArray(resultData.ports)) {
+            return {
+                ports: resultData.ports,
+                message: typeof resultData.message === 'string' ? resultData.message : '',
+                raw: null
+            };
+        }
+
+        if (Array.isArray(resultData.raw)) {
+            return { ports: resultData.raw, message: '', raw: null };
+        }
+
+        const rawValue = Object.prototype.hasOwnProperty.call(resultData, 'raw')
+            ? resultData.raw
+            : resultData;
+
+        return { ports: [], message: '', raw: rawValue };
+    }
+
+    return { ports: [], message: '', raw: resultData };
+}
+
+function renderPortResults(container, ports, emptyMessage) {
+    const portList = Array.isArray(ports) ? ports : [];
+
+    if (portList.length === 0) {
+        const info = document.createElement('div');
+        info.className = 'alert alert-info';
+        info.textContent = emptyMessage || '扫描完成，未发现开放端口。';
+        container.appendChild(info);
+        return;
+    }
+
+    portList.forEach(port => {
+        container.appendChild(createPortItem(port));
+    });
+}
+
+function createPortItem(port) {
+    const portItem = document.createElement('div');
+    portItem.className = 'port-item p-3 mb-2 bg-light rounded border';
+
+    const protocol = port.protocol ? String(port.protocol).toUpperCase() : '未知协议';
+    const service = port.service || '未知服务';
+    const state = port.state || '未知状态';
+
+    portItem.innerHTML = `
+        <div><strong>端口:</strong> ${port.port} (${protocol})</div>
+        <div><strong>服务:</strong> ${service}</div>
+        <div><strong>状态:</strong> ${state}</div>
+    `;
+
+    return portItem;
 }
