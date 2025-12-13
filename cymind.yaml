@@ -1,0 +1,46 @@
+# CyMind 开发配置文件
+
+# 基本配置
+debug: true
+host: "127.0.0.1"
+port: 5000
+
+# 数据库配置
+database:
+  url: "sqlite:///cymind.db"
+  echo: false
+
+# 扫描器配置 - 开发环境跳过工具检查
+scanner:
+  max_concurrent_scans: 3
+  default_timeout: 300
+  nmap_path: "nmap"
+  nuclei_path: "echo"  # 使用 echo 作为占位符
+  subfinder_path: "echo"
+  gobuster_path: "echo"
+
+# AI助手配置 - 开发环境禁用
+ai:
+  enabled: false
+
+# 安全配置 - 开发环境使用默认密钥
+security:
+  secret_key: "dev-secret-key-change-in-production"
+  session_timeout: 3600
+
+# 日志配置
+logging:
+  level: "DEBUG"
+  log_dir: "logs"
+  enable_console: true
+
+# 报告配置
+report:
+  template_dir: "templates/reports"
+  output_dir: "reports"
+  default_template: "default"
+  enable_pdf: false  # 开发环境禁用PDF
+
+# 插件配置
+plugin:
+  enable_plugins: false  # 开发环境禁用插件

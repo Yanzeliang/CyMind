@@ -1,0 +1,65 @@
+# CyMind 配置文件示例
+# 复制此文件为 cymind.yaml 并根据需要修改
+
+# 基本配置
+debug: false
+host: "0.0.0.0"
+port: 5000
+
+# 数据库配置
+database:
+  url: "sqlite:///cymind.db"  # 生产环境建议使用 PostgreSQL
+  echo: false
+  pool_size: 10
+  max_overflow: 20
+
+# 扫描器配置
+scanner:
+  max_concurrent_scans: 5
+  default_timeout: 300
+  nmap_path: "nmap"
+  nuclei_path: "nuclei"
+  subfinder_path: "subfinder"
+  gobuster_path: "gobuster"
+
+# AI助手配置
+ai:
+  enabled: false  # 设置为 true 启用 AI 功能
+  provider: "openai"  # openai, local, azure
+  api_key: null  # 设置你的 API 密钥
+  api_base: null
+  model: "gpt-3.5-turbo"
+  max_tokens: 2048
+  temperature: 0.7
+
+# 安全配置
+security:
+  secret_key: "change-me-in-production"  # 生产环境必须更改
+  session_timeout: 3600
+  max_login_attempts: 5
+  password_min_length: 8
+  enable_csrf: true
+  enable_rate_limiting: true
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_dir: "logs"
+  max_file_size: 10485760  # 10MB
+  backup_count: 5
+  enable_console: true
+
+# 报告配置
+report:
+  template_dir: "templates/reports"
+  output_dir: "reports"
+  default_template: "default"
+  enable_pdf: true
+  pdf_engine: "weasyprint"
+
+# 插件配置
+plugin:
+  plugin_dir: "plugins"
+  enable_plugins: true
+  auto_load: true
+  sandbox_enabled: true
