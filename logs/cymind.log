@@ -1,1 +1,20 @@
 2025-12-13 12:52:29,491 - cymind.app - DEBUG - 返回 1 个目标
+2025-12-13 13:00:47,259 - cymind.demo - INFO - CyMind 平台演示启动
+2025-12-13 13:00:47,260 - cymind.scan - INFO - [DEMO_START] Target: demo.example.com - Details: {'type': 'demonstration'}
+2025-12-13 13:00:47,261 - cymind.error_handler - WARNING - Validation error: 演示验证错误 (field: demo_field)
+2025-12-13 13:00:47,261 - cymind.error_handler - ERROR - Tool error: 演示工具错误 (tool: demo_tool)
+2025-12-13 13:00:47,460 - cymind.app - DEBUG - 返回 1 个目标
+2025-12-13 13:00:47,461 - cymind.app - INFO - 目标添加成功: 演示目标
+2025-12-13 13:05:08,923 - cymind.app - DEBUG - 返回 1 个目标
+2025-12-13 13:05:24,844 - cymind.app - INFO - 目标添加成功: 目标-12/13/2025, 1:05:24 PM
+2025-12-13 13:05:24,856 - cymind.app - DEBUG - 返回 2 个目标
+2025-12-13 13:05:24,857 - cymind.app - INFO - 启动扫描: 目标=https://www.baidu.com, 类型=port_scan
+2025-12-13 13:05:24,858 - cymind.app - INFO - 扫描启动结果: started
+2025-12-13 13:06:32,700 - cymind.app - DEBUG - 返回 2 个目标
+2025-12-13 13:06:40,110 - cymind.app - INFO - 目标添加成功: 演示目标
+2025-12-13 13:21:22,120 - cymind.app - DEBUG - 返回 1 个目标
+2025-12-13 13:37:59,542 - cymind.app - DEBUG - 返回 1 个目标
+2025-12-13 13:37:59,544 - cymind.app - INFO - 目标添加成功: 演示网站
+2025-12-13 13:37:59,546 - cymind.app - INFO - 目标添加成功: 本地服务
+2025-12-13 13:38:00,812 - cymind.app - DEBUG - 返回 3 个目标
+2025-12-13 13:38:02,884 - cymind.app - DEBUG - 返回 3 个目标

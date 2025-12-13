@@ -3,57 +3,248 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自动化渗透测试平台</title>
+    <title>CyMind - 智能渗透测试平台</title>
+    
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome 图标 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
     <!-- 自定义CSS -->
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark">
-        <div class="container">
-            <a class="navbar-brand" href="#">自动化渗透测试平台</a>
+    <!-- 顶部导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark cyber-nav">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand d-flex align-items-center" href="#">
+                <div class="brand-icon me-3">
+                    <i class="fas fa-brain"></i>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">CyMind</span>
+                    <small class="brand-version">v2.0.0</small>
+                </div>
+            </a>
+            
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
             </button>
+            
             <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav">
+                <ul class="navbar-nav me-auto">
                     <li class="nav-item">
-                        <a class="nav-link active" href="#" id="nav-targets">目标管理</a>
+                        <a class="nav-link active" href="#" id="nav-targets">
+                            <i class="fas fa-crosshairs me-2"></i>目标管理
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" id="nav-info-gathering">信息收集</a>
+                        <a class="nav-link" href="#" id="nav-info-gathering">
+                            <i class="fas fa-search me-2"></i>信息收集
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" id="nav-vuln-scan">漏洞扫描</a>
+                        <a class="nav-link" href="#" id="nav-vuln-scan">
+                            <i class="fas fa-shield-alt me-2"></i>漏洞扫描
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#" id="nav-report">报告生成</a>
+                        <a class="nav-link" href="#" id="nav-report">
+                            <i class="fas fa-chart-line me-2"></i>报告分析
+                        </a>
                     </li>
                 </ul>
+                
+                <div class="navbar-nav">
+                    <div class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="fas fa-user-circle me-2"></i>系统
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-dark">
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-cog me-2"></i>设置</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-info-circle me-2"></i>关于</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#"><i class="fas fa-sign-out-alt me-2"></i>退出</a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4">
-        <div class="dashboard">
-            <div class="sidebar">
-                <h5>扫描目标</h5>
-                <div id="target-list">
-                    <!-- 目标列表将通过JavaScript动态加载 -->
-                </div>
-                <button id="add-target-btn" class="btn btn-primary mt-3">添加目标</button>
-            </div>
-            <div class="main-content">
-                <h4>扫描仪表板</h4>
-                <div class="progress-container">
-                    <div class="progress-bar">
-                        <div class="progress" id="scan-progress">0%</div>
+    <!-- 主要内容区域 -->
+    <div class="main-wrapper">
+        <div class="container-fluid">
+            <div class="row g-4">
+                <!-- 左侧边栏 -->
+                <div class="col-lg-3">
+                    <div class="sidebar-card">
+                        <div class="card-header">
+                            <h5 class="card-title mb-0">
+                                <i class="fas fa-crosshairs me-2"></i>扫描目标
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="target-list" class="target-list">
+                                <!-- 目标列表将通过JavaScript动态加载 -->
+                                <div class="loading-skeleton">
+                                    <div class="skeleton-item"></div>
+                                    <div class="skeleton-item"></div>
+                                    <div class="skeleton-item"></div>
+                                </div>
+                            </div>
+                            <button id="add-target-btn" class="btn btn-cyber btn-block mt-3">
+                                <i class="fas fa-plus me-2"></i>添加目标
+                            </button>
+                        </div>
                     </div>
-                    <div class="scan-status" id="scan-status">准备扫描...</div>
+                    
+                    <!-- 系统状态卡片 -->
+                    <div class="status-card mt-4">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="fas fa-heartbeat me-2"></i>系统状态
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="status-item">
+                                <span class="status-label">CPU使用率</span>
+                                <div class="status-bar">
+                                    <div class="status-fill" style="width: 35%"></div>
+                                </div>
+                                <span class="status-value">35%</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">内存使用</span>
+                                <div class="status-bar">
+                                    <div class="status-fill" style="width: 60%"></div>
+                                </div>
+                                <span class="status-value">60%</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">活跃扫描</span>
+                                <span class="status-badge">0</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div id="scan-results">
-                    <!-- 扫描结果将在这里显示 -->
+                
+                <!-- 主内容区域 -->
+                <div class="col-lg-9">
+                    <!-- 页面标题和操作栏 -->
+                    <div class="page-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h2 class="page-title mb-1">扫描仪表板</h2>
+                                <p class="page-subtitle mb-0">智能渗透测试平台 - 实时监控和分析</p>
+                            </div>
+                            <div class="page-actions">
+                                <button class="btn btn-outline-light me-2">
+                                    <i class="fas fa-download me-2"></i>导出报告
+                                </button>
+                                <button class="btn btn-cyber">
+                                    <i class="fas fa-play me-2"></i>快速扫描
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 扫描进度卡片 -->
+                    <div class="progress-card">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="card-title mb-0">
+                                    <i class="fas fa-tasks me-2"></i>扫描进度
+                                </h6>
+                                <span class="scan-status-badge" id="scan-status-badge">待机中</span>
+                            </div>
+                            
+                            <div class="progress-container">
+                                <div class="progress-bar-modern">
+                                    <div class="progress-fill" id="scan-progress" style="width: 0%">
+                                        <span class="progress-text">0%</span>
+                                    </div>
+                                </div>
+                                <div class="progress-info mt-2">
+                                    <span class="scan-status" id="scan-status">准备扫描...</span>
+                                    <span class="scan-time" id="scan-time"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 结果展示区域 -->
+                    <div class="results-card">
+                        <div class="card-header">
+                            <h6 class="card-title mb-0">
+                                <i class="fas fa-chart-bar me-2"></i>扫描结果
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="scan-results" class="scan-results">
+                                <!-- 扫描结果将在这里显示 -->
+                                <div class="empty-state">
+                                    <div class="empty-icon">
+                                        <i class="fas fa-search"></i>
+                                    </div>
+                                    <h5>等待扫描结果</h5>
+                                    <p class="text-muted">选择目标并启动扫描以查看详细结果</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 添加目标模态框 -->
+    <div class="modal fade" id="addTargetModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content cyber-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-plus-circle me-2"></i>添加扫描目标
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addTargetForm">
+                        <div class="mb-3">
+                            <label for="targetName" class="form-label">目标名称</label>
+                            <input type="text" class="form-control cyber-input" id="targetName" placeholder="例如: 公司官网">
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetUrl" class="form-label">目标地址 *</label>
+                            <input type="text" class="form-control cyber-input" id="targetUrl" placeholder="https://example.com" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetType" class="form-label">目标类型</label>
+                            <select class="form-select cyber-input" id="targetType">
+                                <option value="website">网站</option>
+                                <option value="api">API接口</option>
+                                <option value="network">网络设备</option>
+                                <option value="service">服务</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="targetTags" class="form-label">标签</label>
+                            <input type="text" class="form-control cyber-input" id="targetTags" placeholder="用逗号分隔，例如: 生产环境,重要">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-cyber" id="saveTargetBtn">
+                        <i class="fas fa-save me-2"></i>保存并扫描
+                    </button>
                 </div>
             </div>
         </div>
