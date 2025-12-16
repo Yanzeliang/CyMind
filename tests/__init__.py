@@ -1,4 +1,1 @@
-"""
-CyMind 测试模块
-包含单元测试和属性测试
-"""
+# Test package for CyMind platform

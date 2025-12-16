@@ -1,0 +1,44 @@
+# CyMind Development Configuration
+
+environment: development
+debug: true
+host: localhost
+port: 5000
+
+database:
+  url: sqlite:///cymind_dev.db
+  pool_size: 5
+  max_overflow: 10
+  echo: true
+
+logging:
+  level: DEBUG
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file_path: logs/cymind_dev.log
+  max_file_size: 10485760  # 10MB
+  backup_count: 5
+
+security:
+  secret_key: "dev-secret-key-change-in-production"
+  jwt_expiration_hours: 24
+  max_login_attempts: 5
+  session_timeout_minutes: 30
+
+scanner:
+  max_concurrent_scans: 3
+  default_timeout_seconds: 300
+  retry_attempts: 3
+  retry_delay_seconds: 5
+
+ai:
+  enabled: false
+  api_key: ""
+  model: "gpt-3.5-turbo"
+  max_tokens: 1000
+  temperature: 0.7
+
+plugins:
+  plugin_directory: "plugins"
+  auto_discovery: true
+  sandbox_enabled: true
+  max_execution_time: 300

@@ -1,0 +1,4 @@
+# file: /Users/alfredyan/CyMind/models.py
+# hypothesis_version: 6.148.7
+
+[255, 500, 'Invalid scan status', 'Invalid scan type', 'Invalid target type', 'Project', 'Scan', 'ScanResult', 'Target', 'Vulnerability', 'active', 'all, delete-orphan', 'archived', 'bash', 'cancelled', 'completed', 'critical', 'custom', 'cvss_score', 'domain', 'external', 'failed', 'high', 'info', 'information', 'ip', 'ip_address', 'low', 'medium', 'misconfiguration', 'name', 'network', 'pending', 'pentest_tool.db', 'plugins', 'project', 'projects', 'projects.id', 'python', 'recon', 'results', 'running', 'scan', 'scan_result', 'scan_results', 'scan_results.id', 'scan_type', 'scans', 'scans.id', 'schema_migrations', 'service', 'severity', 'status', 'subdomain', 'target', 'target_id', 'target_type', 'targets', 'targets.id', 'title', 'url', 'version', 'vulnerabilities', 'vulnerability', 'web_app']

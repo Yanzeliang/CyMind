@@ -8,15 +8,19 @@ from modules.target_manager import TargetManager
 from modules.scanner import Scanner
 from modules.reporter import Reporter
 
-# 导入新的核心模块
-from core.config import get_config
-from core.logging_config import get_logger
-from core.error_handler import get_error_handler, error_handler_decorator
+# 导入增强的核心模块
+from core.config import get_config, init_config
+from core.logging_config import get_logger, setup_logging
+from core.error_handler import get_error_handler, error_handler_decorator, ErrorContext
 
 app = Flask(__name__)
 
-# 使用新的日志系统
-logger = get_logger("app")
+# 初始化核心基础设施
+init_config()
+setup_logging()
+
+# 使用增强的日志和错误处理系统
+logger = get_logger("cymind.app")
 error_handler = get_error_handler()
 
 # 初始化各模块

@@ -1,0 +1,4 @@
+# file: /Users/alfredyan/CyMind/core/error_handler.py
+# hypothesis_version: 6.148.7
+
+[1.0, 2.0, 60.0, 'call', 'cause', 'circuit_breaker', 'closed', 'component', 'critical', 'cymind.error_handler', 'cymind.retry_handler', 'error_type', 'exception', 'half_open', 'high', 'low', 'medium', 'open', 'operation', 'request_id', 'severity', 'timestamp', 'user_id']

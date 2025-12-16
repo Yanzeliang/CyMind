@@ -1,0 +1,4 @@
+# file: /Users/alfredyan/CyMind/core/interfaces.py
+# hypothesis_version: 6.148.7
+
+['Plugin', 'cancelled', 'completed', 'critical', 'failed', 'high', 'html', 'info', 'json', 'low', 'markdown', 'medium', 'pdf', 'pending', 'port_scan', 'running', 'service_fingerprint', 'ssl_analysis', 'subdomain_enum', 'vulnerability_scan', 'web_directory_scan', 'website']

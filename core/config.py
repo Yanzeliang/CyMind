@@ -1,299 +1,301 @@
 """
-CyMind 配置管理
-统一的配置管理系统
+Enhanced configuration management system for CyMind platform.
+Provides centralized configuration with validation and environment-specific settings.
 """
 
 import os
 import json
 import yaml
 from typing import Dict, Any, Optional
+from pathlib import Path
 from dataclasses import dataclass, field
-from core.exceptions import ConfigurationError
+from enum import Enum
+
+
+class ConfigValidationError(Exception):
+    """Raised when configuration validation fails."""
+    pass
+
+
+class Environment(Enum):
+    """Supported deployment environments."""
+    DEVELOPMENT = "development"
+    TESTING = "testing"
+    PRODUCTION = "production"
 
 
 @dataclass
 class DatabaseConfig:
-    """数据库配置"""
+    """Database configuration settings."""
     url: str = "sqlite:///cymind.db"
-    echo: bool = False
     pool_size: int = 10
     max_overflow: int = 20
-
-
-@dataclass
-class ScannerConfig:
-    """扫描器配置"""
-    max_concurrent_scans: int = 5
-    default_timeout: int = 300
-    nmap_path: str = "nmap"
-    nuclei_path: str = "nuclei"
-    subfinder_path: str = "subfinder"
-    gobuster_path: str = "gobuster"
-
-
-@dataclass
-class AIConfig:
-    """AI助手配置"""
-    enabled: bool = False
-    provider: str = "openai"  # openai, local, azure
-    api_key: Optional[str] = None
-    api_base: Optional[str] = None
-    model: str = "gpt-3.5-turbo"
-    max_tokens: int = 2048
-    temperature: float = 0.7
-
-
-@dataclass
-class SecurityConfig:
-    """安全配置"""
-    secret_key: str = "change-me-in-production"
-    session_timeout: int = 3600  # 1 hour
-    max_login_attempts: int = 5
-    password_min_length: int = 8
-    enable_csrf: bool = True
-    enable_rate_limiting: bool = True
+    echo: bool = False
 
 
 @dataclass
 class LoggingConfig:
-    """日志配置"""
+    """Logging configuration settings."""
     level: str = "INFO"
-    log_dir: str = "logs"
+    format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file_path: Optional[str] = None
     max_file_size: int = 10 * 1024 * 1024  # 10MB
     backup_count: int = 5
-    enable_console: bool = True
 
 
 @dataclass
-class ReportConfig:
-    """报告配置"""
-    template_dir: str = "templates/reports"
-    output_dir: str = "reports"
-    default_template: str = "default"
-    enable_pdf: bool = True
-    pdf_engine: str = "weasyprint"
+class SecurityConfig:
+    """Security-related configuration settings."""
+    secret_key: str = ""
+    jwt_expiration_hours: int = 24
+    max_login_attempts: int = 5
+    session_timeout_minutes: int = 30
+
+
+@dataclass
+class ScannerConfig:
+    """Scanner module configuration settings."""
+    max_concurrent_scans: int = 5
+    default_timeout_seconds: int = 300
+    retry_attempts: int = 3
+    retry_delay_seconds: int = 5
+
+
+@dataclass
+class AIConfig:
+    """AI Assistant configuration settings."""
+    enabled: bool = False
+    api_key: str = ""
+    model: str = "gpt-3.5-turbo"
+    max_tokens: int = 1000
+    temperature: float = 0.7
 
 
 @dataclass
 class PluginConfig:
-    """插件配置"""
-    plugin_dir: str = "plugins"
-    enable_plugins: bool = True
-    auto_load: bool = True
+    """Plugin system configuration settings."""
+    plugin_directory: str = "plugins"
+    auto_discovery: bool = True
     sandbox_enabled: bool = True
+    max_execution_time: int = 300
 
 
 @dataclass
 class CyMindConfig:
-    """CyMind 主配置"""
+    """Main configuration class for CyMind platform."""
+    environment: Environment = Environment.DEVELOPMENT
     debug: bool = False
-    host: str = "127.0.0.1"
+    host: str = "localhost"
     port: int = 5000
     
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
     scanner: ScannerConfig = field(default_factory=ScannerConfig)
     ai: AIConfig = field(default_factory=AIConfig)
-    security: SecurityConfig = field(default_factory=SecurityConfig)
-    logging: LoggingConfig = field(default_factory=LoggingConfig)
-    report: ReportConfig = field(default_factory=ReportConfig)
-    plugin: PluginConfig = field(default_factory=PluginConfig)
+    plugins: PluginConfig = field(default_factory=PluginConfig)
 
 
 class ConfigManager:
-    """配置管理器"""
+    """Manages configuration loading, validation, and access."""
     
-    def __init__(self, config_file: Optional[str] = None):
-        self.config_file = config_file or self._find_config_file()
-        self.config = CyMindConfig()
+    def __init__(self, config_path: Optional[str] = None):
+        self.config_path = config_path or self._get_default_config_path()
+        self._config: Optional[CyMindConfig] = None
         self._load_config()
     
-    def _find_config_file(self) -> Optional[str]:
-        """查找配置文件"""
-        possible_files = [
-            "cymind.yaml",
-            "cymind.yml", 
-            "config.yaml",
-            "config.yml",
-            "cymind.json",
-            "config.json"
-        ]
-        
-        for filename in possible_files:
-            if os.path.exists(filename):
-                return filename
-        
-        return None
+    def _get_default_config_path(self) -> str:
+        """Get the default configuration file path."""
+        env = os.getenv("CYMIND_ENV", "development")
+        return f"config/{env}.yaml"
     
-    def _load_config(self):
-        """加载配置"""
-        # 首先从环境变量加载
-        self._load_from_env()
+    def _load_config(self) -> None:
+        """Load configuration from file and environment variables."""
+        # Start with default configuration
+        config_dict = {}
         
-        # 然后从配置文件加载（如果存在）
-        if self.config_file and os.path.exists(self.config_file):
-            self._load_from_file()
+        # Load from file if it exists
+        if os.path.exists(self.config_path):
+            with open(self.config_path, 'r') as f:
+                if self.config_path.endswith('.yaml') or self.config_path.endswith('.yml'):
+                    config_dict = yaml.safe_load(f) or {}
+                else:
+                    config_dict = json.load(f)
+        
+        # Override with environment variables
+        config_dict = self._apply_env_overrides(config_dict)
+        
+        # Create configuration object
+        self._config = self._dict_to_config(config_dict)
+        
+        # Validate configuration
+        self._validate_config()
     
-    def _load_from_env(self):
-        """从环境变量加载配置"""
+    def _apply_env_overrides(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Apply environment variable overrides to configuration."""
         env_mappings = {
-            "CYMIND_DEBUG": ("debug", bool),
-            "CYMIND_HOST": ("host", str),
-            "CYMIND_PORT": ("port", int),
-            
-            # 数据库配置
-            "CYMIND_DB_URL": ("database.url", str),
-            "CYMIND_DB_ECHO": ("database.echo", bool),
-            
-            # 扫描器配置
-            "CYMIND_MAX_SCANS": ("scanner.max_concurrent_scans", int),
-            "CYMIND_SCAN_TIMEOUT": ("scanner.default_timeout", int),
-            "NMAP_PATH": ("scanner.nmap_path", str),
-            "NUCLEI_PATH": ("scanner.nuclei_path", str),
-            
-            # AI配置
-            "CYMIND_AI_ENABLED": ("ai.enabled", bool),
-            "CYMIND_AI_PROVIDER": ("ai.provider", str),
-            "CYMIND_AI_API_KEY": ("ai.api_key", str),
-            "CYMIND_AI_MODEL": ("ai.model", str),
-            
-            # 安全配置
-            "CYMIND_SECRET_KEY": ("security.secret_key", str),
-            "CYMIND_SESSION_TIMEOUT": ("security.session_timeout", int),
-            
-            # 日志配置
-            "CYMIND_LOG_LEVEL": ("logging.level", str),
-            "CYMIND_LOG_DIR": ("logging.log_dir", str),
+            'CYMIND_DEBUG': ('debug', bool),
+            'CYMIND_HOST': ('host', str),
+            'CYMIND_PORT': ('port', int),
+            'CYMIND_DB_URL': ('database.url', str),
+            'CYMIND_LOG_LEVEL': ('logging.level', str),
+            'CYMIND_SECRET_KEY': ('security.secret_key', str),
+            'CYMIND_AI_ENABLED': ('ai.enabled', bool),
+            'CYMIND_AI_API_KEY': ('ai.api_key', str),
         }
         
         for env_var, (config_path, value_type) in env_mappings.items():
             env_value = os.getenv(env_var)
             if env_value is not None:
-                try:
-                    if value_type == bool:
-                        value = env_value.lower() in ("true", "1", "yes", "on")
-                    elif value_type == int:
-                        value = int(env_value)
-                    else:
-                        value = env_value
-                    
-                    self._set_nested_attr(self.config, config_path, value)
-                except (ValueError, TypeError) as e:
-                    raise ConfigurationError(f"Invalid value for {env_var}: {env_value}") from e
+                # Convert value to appropriate type
+                if value_type == bool:
+                    env_value = env_value.lower() in ('true', '1', 'yes', 'on')
+                elif value_type == int:
+                    env_value = int(env_value)
+                
+                # Set nested configuration value
+                self._set_nested_value(config_dict, config_path, env_value)
+        
+        return config_dict
     
-    def _load_from_file(self):
-        """从配置文件加载"""
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                if self.config_file.endswith(('.yaml', '.yml')):
-                    data = yaml.safe_load(f)
-                else:
-                    data = json.load(f)
-            
-            self._update_config_from_dict(data)
-            
-        except (FileNotFoundError, json.JSONDecodeError, yaml.YAMLError) as e:
-            raise ConfigurationError(f"Failed to load config file {self.config_file}: {e}") from e
+    def _set_nested_value(self, config_dict: Dict[str, Any], path: str, value: Any) -> None:
+        """Set a nested configuration value using dot notation."""
+        keys = path.split('.')
+        current = config_dict
+        
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            current = current[key]
+        
+        current[keys[-1]] = value
     
-    def _update_config_from_dict(self, data: Dict[str, Any]):
-        """从字典更新配置"""
-        def update_nested(obj, updates):
-            for key, value in updates.items():
-                if hasattr(obj, key):
-                    attr = getattr(obj, key)
-                    if hasattr(attr, '__dict__') and isinstance(value, dict):
-                        update_nested(attr, value)
-                    else:
-                        setattr(obj, key, value)
+    def _dict_to_config(self, config_dict: Dict[str, Any]) -> CyMindConfig:
+        """Convert dictionary to CyMindConfig object."""
+        # Handle environment enum
+        env_str = config_dict.get('environment', 'development')
+        if isinstance(env_str, str):
+            config_dict['environment'] = Environment(env_str)
         
-        update_nested(self.config, data)
+        # Create nested configuration objects
+        nested_configs = {
+            'database': DatabaseConfig,
+            'logging': LoggingConfig,
+            'security': SecurityConfig,
+            'scanner': ScannerConfig,
+            'ai': AIConfig,
+            'plugins': PluginConfig,
+        }
+        
+        for key, config_class in nested_configs.items():
+            if key in config_dict and isinstance(config_dict[key], dict):
+                config_dict[key] = config_class(**config_dict[key])
+        
+        return CyMindConfig(**config_dict)
     
-    def _set_nested_attr(self, obj, path: str, value):
-        """设置嵌套属性"""
-        parts = path.split('.')
-        for part in parts[:-1]:
-            obj = getattr(obj, part)
-        setattr(obj, parts[-1], value)
+    def _validate_config(self) -> None:
+        """Validate the loaded configuration."""
+        if not self._config:
+            raise ConfigValidationError("Configuration not loaded")
+        
+        # Validate required fields
+        if self._config.environment == Environment.PRODUCTION:
+            if not self._config.security.secret_key:
+                raise ConfigValidationError("Secret key is required in production")
+        
+        # Validate port range
+        if not (1 <= self._config.port <= 65535):
+            raise ConfigValidationError(f"Invalid port number: {self._config.port}")
+        
+        # Validate logging level
+        valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
+        if self._config.logging.level.upper() not in valid_levels:
+            raise ConfigValidationError(f"Invalid logging level: {self._config.logging.level}")
+        
+        # Validate scanner configuration
+        if self._config.scanner.max_concurrent_scans <= 0:
+            raise ConfigValidationError("max_concurrent_scans must be positive")
+        
+        # Validate AI configuration
+        if self._config.ai.enabled and not self._config.ai.api_key:
+            raise ConfigValidationError("AI API key is required when AI is enabled")
     
-    def get_config(self) -> CyMindConfig:
-        """获取配置对象"""
-        return self.config
+    @property
+    def config(self) -> CyMindConfig:
+        """Get the current configuration."""
+        if not self._config:
+            raise RuntimeError("Configuration not loaded")
+        return self._config
     
-    def validate_config(self) -> bool:
-        """验证配置"""
-        errors = []
-        
-        # 验证必需的配置
-        if not self.config.security.secret_key or self.config.security.secret_key == "change-me-in-production":
-            if not self.config.debug:
-                errors.append("Security secret key must be set in production")
-        
-        # 验证AI配置
-        if self.config.ai.enabled and not self.config.ai.api_key:
-            errors.append("AI API key is required when AI is enabled")
-        
-        # 验证路径
-        paths_to_check = [
-            ("scanner.nmap_path", self.config.scanner.nmap_path),
-            ("scanner.nuclei_path", self.config.scanner.nuclei_path),
-        ]
-        
-        for path_name, path_value in paths_to_check:
-            if not self._check_executable(path_value):
-                errors.append(f"Executable not found: {path_name} = {path_value}")
-        
-        if errors:
-            raise ConfigurationError(f"Configuration validation failed: {'; '.join(errors)}")
-        
-        return True
+    def reload(self) -> None:
+        """Reload configuration from file."""
+        self._load_config()
     
-    def _check_executable(self, path: str) -> bool:
-        """检查可执行文件是否存在"""
-        import shutil
-        return shutil.which(path) is not None
-    
-    def save_config(self, file_path: Optional[str] = None):
-        """保存配置到文件"""
-        output_file = file_path or self.config_file or "cymind.yaml"
+    def save_config(self, config_path: Optional[str] = None) -> None:
+        """Save current configuration to file."""
+        path = config_path or self.config_path
         
-        # 转换配置为字典
-        config_dict = self._config_to_dict(self.config)
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         
-        try:
-            with open(output_file, 'w', encoding='utf-8') as f:
-                if output_file.endswith(('.yaml', '.yml')):
-                    yaml.dump(config_dict, f, default_flow_style=False, indent=2)
-                else:
-                    json.dump(config_dict, f, indent=2)
-        except Exception as e:
-            raise ConfigurationError(f"Failed to save config to {output_file}: {e}") from e
+        # Convert config to dictionary
+        config_dict = self._config_to_dict()
+        
+        # Save to file
+        with open(path, 'w') as f:
+            if path.endswith('.yaml') or path.endswith('.yml'):
+                yaml.dump(config_dict, f, default_flow_style=False)
+            else:
+                json.dump(config_dict, f, indent=2)
     
-    def _config_to_dict(self, obj) -> Dict[str, Any]:
-        """将配置对象转换为字典"""
-        if hasattr(obj, '__dict__'):
-            result = {}
-            for key, value in obj.__dict__.items():
-                if hasattr(value, '__dict__'):
-                    result[key] = self._config_to_dict(value)
-                else:
-                    result[key] = value
-            return result
-        return obj
+    def _config_to_dict(self) -> Dict[str, Any]:
+        """Convert CyMindConfig object to dictionary."""
+        if not self._config:
+            return {}
+        
+        result = {
+            'environment': self._config.environment.value,
+            'debug': self._config.debug,
+            'host': self._config.host,
+            'port': self._config.port,
+        }
+        
+        # Convert nested objects to dictionaries
+        nested_objects = {
+            'database': self._config.database,
+            'logging': self._config.logging,
+            'security': self._config.security,
+            'scanner': self._config.scanner,
+            'ai': self._config.ai,
+            'plugins': self._config.plugins,
+        }
+        
+        for key, obj in nested_objects.items():
+            result[key] = obj.__dict__
+        
+        return result
 
 
-# 全局配置管理器实例
+# Global configuration manager instance
 _config_manager: Optional[ConfigManager] = None
 
 
 def get_config() -> CyMindConfig:
-    """获取全局配置"""
+    """Get the global configuration instance."""
     global _config_manager
     if _config_manager is None:
         _config_manager = ConfigManager()
-    return _config_manager.get_config()
+    return _config_manager.config
 
 
-def init_config(config_file: Optional[str] = None) -> ConfigManager:
-    """初始化配置管理器"""
+def reload_config() -> None:
+    """Reload the global configuration."""
     global _config_manager
-    _config_manager = ConfigManager(config_file)
-    return _config_manager
+    if _config_manager is not None:
+        _config_manager.reload()
+
+
+def init_config(config_path: Optional[str] = None) -> None:
+    """Initialize the global configuration manager."""
+    global _config_manager
+    _config_manager = ConfigManager(config_path)

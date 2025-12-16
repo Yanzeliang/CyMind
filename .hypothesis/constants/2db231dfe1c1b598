@@ -1,0 +1,4 @@
+# file: /Users/alfredyan/CyMind/core/exceptions.py
+# hypothesis_version: 6.148.7
+
+['AUTHZ_ERROR', 'AUTH_ERROR', 'Access denied', 'BUSINESS_ERROR', 'CONFIG_ERROR', 'CRITICAL_ERROR', 'DATABASE_ERROR', 'PLUGIN_ERROR', 'RESOURCE_ERROR', 'TOOL_ERROR', 'VALIDATION_ERROR']
