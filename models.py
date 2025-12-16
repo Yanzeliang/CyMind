@@ -39,6 +39,9 @@ class ResultType(Enum):
     VULNERABILITY = "vulnerability"
     MISCONFIGURATION = "misconfiguration"
     INFORMATION = "information"
+    DNS = "dns"
+    TECHNOLOGY = "technology"
+    SUMMARY = "summary"
 
 class Severity(Enum):
     CRITICAL = "critical"

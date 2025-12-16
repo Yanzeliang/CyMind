@@ -52,12 +52,15 @@ class Scanner:
             scan_id = f"{target['id']}_{scan_type}"
             if scan_id in self.active_scans:
                 self.active_scans[scan_id]["status"] = "completed"
+                # 清理已完成的扫描任务
+                del self.active_scans[scan_id]
 
     def _port_scan(self, target: Dict) -> Dict:
         """端口扫描实现"""
         logger.info("开始端口扫描: %s", target.get('url') or target.get('ip'))
 
-        command_target = target.get('url') or target.get('ip')
+        # 提取扫描目标
+        command_target = self._extract_scan_target(target)
         if not command_target:
             logger.error("未提供有效的扫描目标")
             return {"status": "error", "message": "未提供有效的扫描目标"}
@@ -185,6 +188,42 @@ class Scanner:
 
         return ports
 
+    def _extract_scan_target(self, target: Dict) -> str:
+        """从目标信息中提取可扫描的主机名或IP"""
+        # 优先使用IP地址
+        if target.get('ip_address') and target['ip_address'].strip():
+            return target['ip_address'].strip()
+        
+        # 如果有IP字段
+        if target.get('ip') and target['ip'].strip():
+            return target['ip'].strip()
+        
+        # 从URL中提取主机名
+        url = target.get('url', '').strip()
+        if url:
+            # 移除协议前缀
+            if url.startswith('https://'):
+                url = url[8:]
+            elif url.startswith('http://'):
+                url = url[7:]
+            
+            # 移除路径部分
+            if '/' in url:
+                url = url.split('/')[0]
+            
+            # 移除端口号（如果有）
+            if ':' in url and not url.count(':') > 1:  # 避免IPv6地址
+                url = url.split(':')[0]
+            
+            return url
+        
+        # 使用name字段作为最后的选择
+        name = target.get('name', '').strip()
+        if name and '.' in name:  # 简单检查是否像域名
+            return name
+        
+        return ""
+
     def _vulnerability_scan(self, target: Dict) -> Dict:
         """漏洞扫描实现"""
         # 这里将实现nuclei/xray扫描逻辑
@@ -199,9 +238,13 @@ class Scanner:
         if scan["future"].done():
             try:
                 result = scan["future"].result()
+                # 清理已完成的扫描任务
+                del self.active_scans[scan_id]
                 return {"status": "completed", "result": result}
             except Exception as exc:  # pragma: no cover - 捕获执行错误
                 logger.exception("获取扫描结果失败")
+                # 清理失败的扫描任务
+                del self.active_scans[scan_id]
                 return {"status": "error", "message": str(exc)}
         else:
             return {"status": "running"}

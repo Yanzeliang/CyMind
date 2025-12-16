@@ -1,0 +1,4 @@
+# file: /Users/alfredyan/CyMind/core/config.py
+# hypothesis_version: 6.148.7
+
+[0.7, 300, 1000, 1024, 5000, 65535, '.', '.yaml', '.yml', '1', 'CRITICAL', 'CYMIND_AI_API_KEY', 'CYMIND_AI_ENABLED', 'CYMIND_DB_URL', 'CYMIND_DEBUG', 'CYMIND_ENV', 'CYMIND_HOST', 'CYMIND_LOG_LEVEL', 'CYMIND_PORT', 'CYMIND_SECRET_KEY', 'DEBUG', 'ERROR', 'INFO', 'WARNING', 'ai', 'ai.api_key', 'ai.enabled', 'database', 'database.url', 'debug', 'development', 'environment', 'gpt-3.5-turbo', 'host', 'localhost', 'logging', 'logging.level', 'logs', 'on', 'plugins', 'port', 'production', 'r', 'scanner', 'security', 'security.secret_key', 'sqlite:///cymind.db', 'testing', 'true', 'w', 'yes']
