@@ -71,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setActiveNav(this);
         document.querySelector('.page-title').textContent = '信息收集';
         document.querySelector('.page-subtitle').textContent = '子域名枚举和服务发现';
-        showComingSoon('信息收集功能正在开发中，敬请期待！');
+        showInfoGatheringInterface();
     });
 
     document.getElementById('nav-vuln-scan').addEventListener('click', function(e) {
@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setActiveNav(this);
         document.querySelector('.page-title').textContent = '漏洞扫描';
         document.querySelector('.page-subtitle').textContent = '自动化漏洞检测和分析';
-        showComingSoon('漏洞扫描功能正在开发中，敬请期待！');
+        showVulnScanInterface();
     });
 
     document.getElementById('nav-report').addEventListener('click', function(e) {
@@ -614,4 +614,294 @@ function getPortInfo(port) {
 // 分析端口（占位符功能）
 function analyzePort(port) {
     showNotification(`端口 ${port} 详细分析功能即将推出`, 'info');
+}
+
+// 显示信息收集界面
+function showInfoGatheringInterface() {
+    const resultsContainer = document.getElementById('scan-results');
+    resultsContainer.innerHTML = `
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-search me-2"></i>子域名枚举</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">发现目标域名的所有子域名</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="subdomainTarget" placeholder="example.com">
+                        </div>
+                        <button class="btn btn-primary" onclick="startSubdomainEnum()">
+                            <i class="fas fa-play me-2"></i>开始枚举
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-network-wired me-2"></i>服务发现</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">扫描目标的开放端口和服务</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="serviceTarget" placeholder="192.168.1.1 或 example.com">
+                        </div>
+                        <button class="btn btn-primary" onclick="startServiceDiscovery()">
+                            <i class="fas fa-play me-2"></i>开始扫描
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>扫描结果</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="info-gathering-results">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-search fa-2x mb-3"></i>
+                                <p>选择上方的扫描类型开始信息收集</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// 显示漏洞扫描界面
+function showVulnScanInterface() {
+    const resultsContainer = document.getElementById('scan-results');
+    resultsContainer.innerHTML = `
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-globe me-2"></i>Web应用扫描</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">扫描Web应用的常见漏洞</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="webTarget" placeholder="https://example.com">
+                        </div>
+                        <button class="btn btn-warning" onclick="startWebVulnScan()">
+                            <i class="fas fa-bug me-2"></i>开始扫描
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-database me-2"></i>服务漏洞扫描</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">检测网络服务的已知漏洞</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="serviceVulnTarget" placeholder="192.168.1.1">
+                        </div>
+                        <button class="btn btn-warning" onclick="startServiceVulnScan()">
+                            <i class="fas fa-shield-alt me-2"></i>开始扫描
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-folder me-2"></i>目录扫描</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">发现隐藏的目录和文件</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="dirTarget" placeholder="https://example.com">
+                        </div>
+                        <button class="btn btn-warning" onclick="startDirScan()">
+                            <i class="fas fa-folder-open me-2"></i>开始扫描
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>漏洞报告</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="vuln-scan-results">
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-shield-alt fa-2x mb-3"></i>
+                                <p>选择上方的扫描类型开始漏洞检测</p>
+                                <div class="alert alert-warning mt-3">
+                                    <i class="fas fa-exclamation-triangle me-2"></i>
+                                    <strong>注意：</strong>仅在授权的目标上进行漏洞扫描
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// 子域名枚举功能
+function startSubdomainEnum() {
+    const target = document.getElementById('subdomainTarget').value;
+    if (!target) {
+        showNotification('请输入目标域名', 'warning');
+        return;
+    }
+    
+    const resultsDiv = document.getElementById('info-gathering-results');
+    resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">扫描中...</span>
+            </div>
+            <p class="mt-3">正在枚举 ${target} 的子域名...</p>
+            <small class="text-muted">这可能需要几分钟时间</small>
+        </div>
+    `;
+    
+    // 模拟子域名发现结果
+    setTimeout(() => {
+        const mockSubdomains = [
+            'www.' + target,
+            'mail.' + target,
+            'ftp.' + target,
+            'admin.' + target,
+            'api.' + target,
+            'dev.' + target
+        ];
+        
+        resultsDiv.innerHTML = `
+            <h6 class="mb-3">发现 ${mockSubdomains.length} 个子域名：</h6>
+            <div class="row">
+                ${mockSubdomains.map(subdomain => `
+                    <div class="col-md-6 mb-2">
+                        <div class="d-flex align-items-center">
+                            <i class="fas fa-globe text-primary me-2"></i>
+                            <span>${subdomain}</span>
+                            <button class="btn btn-sm btn-outline-primary ms-auto" onclick="scanTarget('${subdomain}', 'port_scan')">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>
+                这是模拟结果。实际功能需要集成subfinder、amass等工具。
+            </div>
+        `;
+    }, 3000);
+}
+
+// 服务发现功能
+function startServiceDiscovery() {
+    const target = document.getElementById('serviceTarget').value;
+    if (!target) {
+        showNotification('请输入目标地址', 'warning');
+        return;
+    }
+    
+    // 直接调用现有的端口扫描功能
+    showNotification(`正在对 ${target} 进行服务发现...`, 'info');
+    startScan(target, 'port_scan');
+    
+    // 将结果显示在信息收集区域
+    const resultsDiv = document.getElementById('info-gathering-results');
+    resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">扫描中...</span>
+            </div>
+            <p class="mt-3">正在扫描 ${target} 的开放端口...</p>
+        </div>
+    `;
+}
+
+// Web应用漏洞扫描
+function startWebVulnScan() {
+    const target = document.getElementById('webTarget').value;
+    if (!target) {
+        showNotification('请输入目标URL', 'warning');
+        return;
+    }
+    
+    const resultsDiv = document.getElementById('vuln-scan-results');
+    resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-warning" role="status">
+                <span class="visually-hidden">扫描中...</span>
+            </div>
+            <p class="mt-3">正在扫描 ${target} 的Web应用漏洞...</p>
+        </div>
+    `;
+    
+    // 模拟漏洞扫描结果
+    setTimeout(() => {
+        const mockVulns = [
+            { name: 'HTTP安全头缺失', severity: 'low', description: '缺少X-Frame-Options等安全头' },
+            { name: '目录遍历测试', severity: 'info', description: '未发现目录遍历漏洞' },
+            { name: 'SQL注入测试', severity: 'info', description: '未发现SQL注入漏洞' }
+        ];
+        
+        resultsDiv.innerHTML = `
+            <h6 class="mb-3">Web应用扫描结果：</h6>
+            ${mockVulns.map(vuln => `
+                <div class="alert alert-${vuln.severity === 'low' ? 'warning' : 'info'} d-flex align-items-center">
+                    <i class="fas fa-${vuln.severity === 'low' ? 'exclamation-triangle' : 'info-circle'} me-3"></i>
+                    <div class="flex-grow-1">
+                        <strong>${vuln.name}</strong>
+                        <p class="mb-0 small">${vuln.description}</p>
+                    </div>
+                    <span class="badge bg-${vuln.severity === 'low' ? 'warning' : 'info'}">${vuln.severity.toUpperCase()}</span>
+                </div>
+            `).join('')}
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle me-2"></i>
+                这是模拟结果。实际功能需要集成nuclei、xray等漏洞扫描工具。
+            </div>
+        `;
+    }, 4000);
+}
+
+// 服务漏洞扫描
+function startServiceVulnScan() {
+    const target = document.getElementById('serviceVulnTarget').value;
+    if (!target) {
+        showNotification('请输入目标地址', 'warning');
+        return;
+    }
+    
+    showNotification('服务漏洞扫描功能正在开发中', 'info');
+}
+
+// 目录扫描
+function startDirScan() {
+    const target = document.getElementById('dirTarget').value;
+    if (!target) {
+        showNotification('请输入目标URL', 'warning');
+        return;
+    }
+    
+    showNotification('目录扫描功能正在开发中', 'info');
+}
+
+// 编辑目标功能的实现
+function editTarget(targetId) {
+    showNotification('目标编辑功能正在开发中', 'info');
+    // TODO: 实现目标编辑功能
+    // 1. 获取目标详情
+    // 2. 显示编辑模态框
+    // 3. 保存修改
 }

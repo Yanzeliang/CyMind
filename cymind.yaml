@@ -3,7 +3,7 @@
 # 基本配置
 debug: true
 host: "127.0.0.1"
-port: 5000
+port: 8080
 
 # 数据库配置
 database:

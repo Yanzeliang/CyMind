@@ -46,8 +46,13 @@ def main():
         config_manager = init_config()
         config = get_config()
         
+        # 确保config_manager不为None
+        if config_manager is None:
+            from core.config import ConfigManager
+            config_manager = ConfigManager()
+        
         print("📝 设置日志系统...")
-        setup_logging(config.logging.log_dir, config.logging.level)
+        setup_logging()
         
         print("🛡️ 初始化错误处理...")
         error_handler = get_error_handler()
@@ -64,7 +69,7 @@ def main():
 ✅ 系统初始化完成！
 
 📊 配置信息:
-   • 配置文件: {config_manager.config_file or '使用默认配置'}
+   • 配置文件: {getattr(config_manager, 'config_file', None) or '使用默认配置'}
    • 调试模式: {'开启' if config.debug else '关闭'}
    • 监听地址: {config.host}:{config.port}
    • 数据库: {config.database.url}
@@ -104,7 +109,7 @@ def main():
         # 启动Flask应用
         app.run(
             host=config.host,
-            port=config.port,
+            port=8080,  # 临时硬编码端口
             debug=config.debug,
             use_reloader=False  # 避免重复启动
         )

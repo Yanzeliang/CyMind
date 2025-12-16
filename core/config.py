@@ -39,6 +39,7 @@ class LoggingConfig:
     level: str = "INFO"
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     file_path: Optional[str] = None
+    log_dir: str = "logs"  # 添加log_dir属性
     max_file_size: int = 10 * 1024 * 1024  # 10MB
     backup_count: int = 5
 

@@ -21,7 +21,7 @@ def main():
         config_manager.validate_config()
         
         # 设置日志
-        setup_logging(config.logging.log_dir, config.logging.level)
+        setup_logging()
         
         # 初始化错误处理器
         error_handler = get_error_handler()

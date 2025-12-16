@@ -3,7 +3,7 @@ import subprocess
 import os
 import json
 import logging
-from models import Session, ScanResult
+from models import Session, ScanResult, Scan, Target, Project
 from modules.target_manager import TargetManager
 from modules.scanner import Scanner
 from modules.reporter import Reporter
@@ -38,14 +38,22 @@ def handle_targets():
     if request.method == 'POST':
         # 处理目标添加/导入
         data = request.get_json()
-        target_manager.add_target(data)
-        logger.info(f"目标添加成功: {data.get('name', 'Unknown')}")
-        return jsonify({"status": "success"})
+        try:
+            new_target = target_manager.add_target(data)
+            logger.info(f"目标添加成功: {data.get('name', 'Unknown')}")
+            return jsonify({"status": "success", "target": new_target})
+        except Exception as e:
+            logger.error(f"添加目标失败: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 400
     else:
         # 获取目标列表
-        targets = target_manager.get_targets()
-        logger.debug(f"返回 {len(targets)} 个目标")
-        return jsonify(targets)
+        try:
+            targets = target_manager.get_targets()
+            logger.debug(f"返回 {len(targets)} 个目标")
+            return jsonify(targets)
+        except Exception as e:
+            logger.error(f"获取目标列表失败: {e}")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/scan', methods=['POST'])
 @error_handler_decorator(error_handler)
@@ -76,42 +84,55 @@ def get_scan_status(scan_id):
 @app.route('/api/history', methods=['GET'])
 def get_scan_history():
     session = Session()
-    results = session.query(ScanResult).order_by(ScanResult.created_at.desc()).all()
-    history = []
-    for result in results:
-        history.append({
-            'id': result.id,
-            'target': result.target,
-            'scan_type': result.scan_type,
-            'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S')
-        })
-    return jsonify(history)
+    try:
+        # 查询扫描记录，包含关联的目标信息
+        scans = session.query(Scan).join(Target).order_by(Scan.started_at.desc()).all()
+        history = []
+        for scan in scans:
+            history.append({
+                'id': scan.id,
+                'target': scan.target.name or scan.target.url,
+                'scan_type': scan.scan_type,
+                'status': scan.status,
+                'created_at': scan.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'result_count': len(scan.results)
+            })
+        return jsonify(history)
+    finally:
+        session.close()
 
 @app.route('/api/history/<int:scan_id>', methods=['GET'])
 def get_scan_details(scan_id):
     session = Session()
-    result = session.query(ScanResult).filter_by(id=scan_id).first()
-    if not result:
-        return jsonify({"status": "error", "message": "记录不存在"})
-    raw_result = json.loads(result.result)
-
-    if result.scan_type == 'port_scan':
-        if isinstance(raw_result, dict) and 'ports' in raw_result:
-            formatted_result = raw_result
-        elif isinstance(raw_result, list):
-            formatted_result = {'ports': raw_result}
-        else:
-            formatted_result = {'raw': raw_result}
-    else:
-        formatted_result = raw_result
-
-    return jsonify({
-        'id': result.id,
-        'target': result.target,
-        'scan_type': result.scan_type,
-        'result': formatted_result,
-        'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S')
-    })
+    try:
+        # 查询扫描记录，包含关联的目标和结果
+        scan = session.query(Scan).filter_by(id=scan_id).first()
+        if not scan:
+            return jsonify({"status": "error", "message": "扫描记录不存在"})
+        
+        # 收集所有扫描结果
+        results = []
+        for result in scan.results:
+            results.append({
+                'id': result.id,
+                'type': result.result_type,
+                'data': result.data,
+                'severity': result.severity,
+                'confidence': result.confidence,
+                'created_at': result.created_at.strftime('%Y-%m-%d %H:%M:%S')
+            })
+        
+        return jsonify({
+            'id': scan.id,
+            'target': scan.target.name or scan.target.url,
+            'scan_type': scan.scan_type,
+            'status': scan.status,
+            'results': results,
+            'started_at': scan.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'completed_at': scan.completed_at.strftime('%Y-%m-%d %H:%M:%S') if scan.completed_at else None
+        })
+    finally:
+        session.close()
 
 if __name__ == '__main__':
     app.run(debug=True)

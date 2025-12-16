@@ -4,7 +4,7 @@ import logging
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 
-from models import Session, ScanResult
+from models import Session, ScanResult, Scan, Target, ScanType, ScanStatus, ResultType, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -94,16 +94,36 @@ class Scanner:
             record_payload["message"] = "扫描完成，未发现开放端口"
 
         session = Session()
-        db_record = ScanResult(
-            target=command_target,
-            scan_type="port_scan",
-            result=json.dumps(record_payload, ensure_ascii=False)
-        )
         try:
-            session.add(db_record)
+            # 查找目标
+            target_obj = session.query(Target).filter_by(id=target['id']).first()
+            if not target_obj:
+                logger.error("目标不存在: %s", target['id'])
+                return {"status": "error", "message": "目标不存在"}
+            
+            # 创建扫描记录
+            scan = Scan(
+                project_id=target_obj.project_id,
+                target_id=target_obj.id,
+                scan_type=ScanType.RECON.value,
+                status=ScanStatus.COMPLETED.value
+            )
+            session.add(scan)
             session.commit()
-            session.refresh(db_record)
-            logger.info("扫描结果已保存，ID: %s", db_record.id)
+            
+            # 创建扫描结果记录
+            scan_result = ScanResult(
+                scan_id=scan.id,
+                result_type=ResultType.SERVICE.value,
+                data=record_payload,
+                severity=Severity.INFO.value,
+                confidence=0.9
+            )
+            session.add(scan_result)
+            session.commit()
+            session.refresh(scan_result)
+            logger.info("扫描结果已保存，扫描ID: %s, 结果ID: %s", scan.id, scan_result.id)
+            
         except Exception as exc:
             session.rollback()
             logger.error("数据库保存失败: %s", exc)
@@ -118,7 +138,7 @@ class Scanner:
             "status": "completed",
             "target": command_target,
             "ports": scan_results,
-            "scan_id": db_record.id
+            "scan_id": scan.id
         }
         if not scan_results:
             response["message"] = record_payload["message"]
