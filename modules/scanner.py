@@ -38,22 +38,27 @@ class Scanner:
 
     def _execute_scan(self, target: Dict, scan_type: str) -> Dict:
         """执行具体的扫描命令"""
+        scan_id = f"{target['id']}_{scan_type}"
         try:
             if scan_type == "port_scan":
-                return self._port_scan(target)
+                result = self._port_scan(target)
             elif scan_type == "vulnerability_scan":
-                return self._vulnerability_scan(target)
+                result = self._vulnerability_scan(target)
             else:
-                return {"status": "error", "message": "未知的扫描类型"}
-        except Exception as exc:  # pragma: no cover - 记录异常
-            logger.exception("扫描执行失败")
-            return {"status": "error", "message": str(exc)}
-        finally:
-            scan_id = f"{target['id']}_{scan_type}"
+                result = {"status": "error", "message": "未知的扫描类型"}
+            
+            # 保存结果到 active_scans 供查询（不立即删除）
             if scan_id in self.active_scans:
                 self.active_scans[scan_id]["status"] = "completed"
-                # 清理已完成的扫描任务
-                del self.active_scans[scan_id]
+                self.active_scans[scan_id]["result"] = result
+            
+            return result
+        except Exception as exc:  # pragma: no cover - 记录异常
+            logger.exception("扫描执行失败")
+            if scan_id in self.active_scans:
+                self.active_scans[scan_id]["status"] = "error"
+                self.active_scans[scan_id]["error"] = str(exc)
+            return {"status": "error", "message": str(exc)}
 
     def _port_scan(self, target: Dict) -> Dict:
         """端口扫描实现"""
@@ -235,6 +240,19 @@ class Scanner:
         if not scan:
             return {"status": "not_found"}
 
+        # 检查是否已有缓存的完成结果
+        if scan.get("status") == "completed" and "result" in scan:
+            result = scan["result"]
+            # 返回后清理
+            del self.active_scans[scan_id]
+            return {"status": "completed", "result": result}
+        
+        if scan.get("status") == "error" and "error" in scan:
+            error = scan["error"]
+            del self.active_scans[scan_id]
+            return {"status": "error", "message": error}
+
+        # 检查 future 状态
         if scan["future"].done():
             try:
                 result = scan["future"].result()

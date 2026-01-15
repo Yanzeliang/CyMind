@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import subprocess
 import os
 import json
@@ -579,6 +579,163 @@ def cleanup_completed_recon_scans():
         return jsonify({"status": "success", "message": "清理完成"})
     except Exception as e:
         logger.error(f"清理侦察扫描失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ===== 漏洞扫描 API =====
+from modules.vuln_scanner import VulnScanner
+vuln_scanner = VulnScanner()
+
+@app.route('/api/vuln-scan/web', methods=['POST'])
+@error_handler_decorator(error_handler)
+def start_web_vuln_scan():
+    """启动 Web 漏洞扫描"""
+    try:
+        data = request.get_json()
+        target_url = data.get('target_url')
+        target_id = data.get('target_id')
+        
+        if not target_url:
+            return jsonify({"status": "error", "message": "缺少目标 URL"}), 400
+        
+        result = vuln_scanner.start_web_vuln_scan(target_url, target_id)
+        logger.info(f"Web 漏洞扫描启动: {target_url}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"启动 Web 漏洞扫描失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/vuln-scan/directory', methods=['POST'])
+@error_handler_decorator(error_handler)
+def start_directory_scan():
+    """启动目录扫描"""
+    try:
+        data = request.get_json()
+        target_url = data.get('target_url')
+        wordlist = data.get('wordlist')  # 可选自定义字典
+        target_id = data.get('target_id')
+        
+        if not target_url:
+            return jsonify({"status": "error", "message": "缺少目标 URL"}), 400
+        
+        result = vuln_scanner.start_directory_scan(target_url, wordlist, target_id)
+        logger.info(f"目录扫描启动: {target_url}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"启动目录扫描失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/vuln-scan/service', methods=['POST'])
+@error_handler_decorator(error_handler)
+def start_service_vuln_scan():
+    """启动服务漏洞扫描"""
+    try:
+        data = request.get_json()
+        target = data.get('target')  # IP 或主机名
+        target_id = data.get('target_id')
+        
+        if not target:
+            return jsonify({"status": "error", "message": "缺少目标"}), 400
+        
+        result = vuln_scanner.start_service_vuln_scan(target, target_id)
+        logger.info(f"服务漏洞扫描启动: {target}")
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"启动服务漏洞扫描失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/vuln-scan/<scan_id>', methods=['GET'])
+@error_handler_decorator(error_handler)
+def get_vuln_scan_status(scan_id):
+    """获取漏洞扫描状态"""
+    try:
+        status = vuln_scanner.get_scan_status(scan_id)
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"获取漏洞扫描状态失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ===== 报告生成 API =====
+@app.route('/api/report/generate', methods=['POST'])
+@error_handler_decorator(error_handler)
+def generate_report():
+    """生成扫描报告"""
+    try:
+        data = request.get_json()
+        scan_id = data.get('scan_id')
+        report_type = data.get('report_type', 'html')  # html, markdown, json
+        
+        # 获取扫描数据
+        scan_data = None
+        
+        # 尝试从数据库获取历史扫描
+        if scan_id:
+            session = Session()
+            try:
+                scan = session.query(Scan).filter_by(id=scan_id).first()
+                if scan:
+                    scan_data = {
+                        'target': scan.target.name or scan.target.url,
+                        'scan_type': scan.scan_type,
+                        'started_at': scan.started_at.strftime('%Y-%m-%d %H:%M:%S'),
+                        'results': [
+                            {
+                                'type': r.result_type,
+                                'data': r.data,
+                                'severity': r.severity
+                            } for r in scan.results
+                        ]
+                    }
+            finally:
+                session.close()
+        
+        # 如果没有找到扫描数据，使用请求中的数据
+        if not scan_data:
+            scan_data = data.get('scan_data', {})
+        
+        if not scan_data:
+            return jsonify({"status": "error", "message": "未找到扫描数据"}), 400
+        
+        # 生成报告
+        report_content = reporter.generate_report(scan_data, report_type)
+        
+        # 保存报告
+        file_path = reporter.save_report(report_content, report_format=report_type)
+        
+        logger.info(f"报告生成成功: {file_path}")
+        return jsonify({
+            "status": "success",
+            "report_path": file_path,
+            "report_type": report_type,
+            "content": report_content if report_type in ['markdown', 'json'] else None
+        })
+        
+    except Exception as e:
+        logger.error(f"生成报告失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/reports', methods=['GET'])
+@error_handler_decorator(error_handler)
+def list_reports():
+    """列出所有报告"""
+    try:
+        reports = reporter.list_reports()
+        return jsonify(reports)
+    except Exception as e:
+        logger.error(f"获取报告列表失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/report/<path:filename>', methods=['GET'])
+def download_report(filename):
+    """下载报告文件"""
+    try:
+        import os
+        reports_dir = os.path.join(os.path.dirname(__file__), 'reports')
+        return send_from_directory(reports_dir, filename, as_attachment=True)
+    except Exception as e:
+        logger.error(f"下载报告失败: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
