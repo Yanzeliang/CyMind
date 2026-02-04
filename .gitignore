@@ -1,0 +1,10 @@
+# Python cache and test artifacts
+__pycache__/
+.pytest_cache/
+.hypothesis/
+
+# Logs
+logs/*.log
+
+# Local database
+pentest_tool.db
