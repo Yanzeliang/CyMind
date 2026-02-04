@@ -231,8 +231,30 @@ class Scanner:
 
     def _vulnerability_scan(self, target: Dict) -> Dict:
         """漏洞扫描实现"""
-        # 这里将实现nuclei/xray扫描逻辑
-        return {"status": "vuln_scan_not_implemented"}
+        logger.info("开始漏洞扫描: %s", target.get('url') or target.get('ip') or target.get('name'))
+
+        try:
+            from modules.vuln_scanner import VulnScanner
+            vuln_scanner = VulnScanner()
+            target_id = target.get('id')
+            result = vuln_scanner.run_comprehensive_scan(target, target_id=target_id)
+
+            if result.get('status') != 'completed':
+                return result
+
+            return {
+                "status": "completed",
+                "target": result.get('target'),
+                "scan_type": "vulnerability_scan",
+                "summary": result.get('summary', {}),
+                "vulnerabilities": result.get('vulnerabilities', []),
+                "services": result.get('services', []),
+                "directories": result.get('directories', []),
+                "db_scan_id": result.get('db_scan_id')
+            }
+        except Exception as exc:
+            logger.exception("漏洞扫描失败")
+            return {"status": "error", "message": str(exc)}
 
     def get_scan_status(self, scan_id: str) -> Dict:
         """获取扫描状态"""

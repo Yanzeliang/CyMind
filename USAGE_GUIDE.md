@@ -35,14 +35,15 @@ python3 app.py
 
 ### 扫描功能
 - ✅ 端口扫描（基于Nmap）
+- ✅ 漏洞扫描（Web/服务/CVE匹配/目录）
+- ✅ Web目录扫描
 - 🔄 子域名枚举（开发中）
-- 🔄 漏洞扫描（开发中）
-- 🔄 Web目录扫描（开发中）
 
 ### 报告系统
 - ✅ HTML格式报告
-- 🔄 PDF格式报告（开发中）
-- 🔄 Markdown格式报告（开发中）
+- ✅ Markdown格式报告
+- ✅ JSON格式报告
+- 🔄 PDF格式报告（需要安装weasyprint）
 
 ## 📊 新增功能（v2.0.0）
 
@@ -86,6 +87,33 @@ curl -X POST http://127.0.0.1:5000/api/scan \
 
 # 查看扫描状态
 curl http://127.0.0.1:5000/api/scan/{scan_id}
+```
+
+### 漏洞扫描 API
+
+```bash
+# 启动 Web 漏洞扫描
+curl -X POST http://127.0.0.1:5000/api/vuln-scan/web \
+  -H "Content-Type: application/json" \
+  -d '{"target_url": "https://example.com"}'
+
+# 启动服务漏洞扫描
+curl -X POST http://127.0.0.1:5000/api/vuln-scan/service \
+  -H "Content-Type: application/json" \
+  -d '{"target": "scanme.nmap.org"}'
+
+# 启动目录扫描
+curl -X POST http://127.0.0.1:5000/api/vuln-scan/directory \
+  -H "Content-Type: application/json" \
+  -d '{"target_url": "https://example.com"}'
+
+# 启动综合漏洞扫描（服务 + Web + 目录）
+curl -X POST http://127.0.0.1:5000/api/vuln-scan/comprehensive \
+  -H "Content-Type: application/json" \
+  -d '{"target_url": "https://example.com", "include_directories": true}'
+
+# 查询漏洞扫描状态
+curl http://127.0.0.1:5000/api/vuln-scan/{scan_id}
 ```
 
 ### 历史记录 API

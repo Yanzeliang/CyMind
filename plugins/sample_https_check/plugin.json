@@ -1,0 +1,13 @@
+{
+  "name": "https_check",
+  "version": "1.0.0",
+  "type": "python",
+  "entry": "run.py",
+  "description": "Check whether target enforces HTTPS",
+  "author": "CyMind",
+  "capabilities": [
+    "vulnerability_scan",
+    "web_check"
+  ],
+  "configuration": {}
+}

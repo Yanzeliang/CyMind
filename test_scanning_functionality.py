@@ -10,7 +10,7 @@ import time
 from modules.scanner import Scanner
 from modules.target_manager import TargetManager
 from modules.project_manager import ProjectManager
-from models import Session, Scan, ScanResult
+from models import Session, Scan, ScanResult, ScanType
 
 
 def test_scanning_functionality():
@@ -149,17 +149,72 @@ def test_scanning_functionality():
     finally:
         session.close()
     
-    # 6. 测试漏洞扫描（应该返回未实现）
+    # 6. 测试漏洞扫描
     print("\n6. 测试漏洞扫描")
     print("-" * 30)
     
     vuln_result = scanner.run_scan(test_target, 'vulnerability_scan')
-    print(f"漏洞扫描结果: {vuln_result}")
-    
-    if vuln_result['status'] == 'started':
-        time.sleep(1)
-        vuln_status = scanner.get_scan_status(vuln_result['scan_id'])
-        print(f"漏洞扫描状态: {vuln_status}")
+    print(f"漏洞扫描启动结果: {vuln_result}")
+
+    if vuln_result.get('status') != 'started':
+        print(f"漏洞扫描启动失败: {vuln_result}")
+        return False
+
+    vuln_scan_id = vuln_result['scan_id']
+    max_wait = 90  # 最多等待90秒
+    wait_time = 0
+
+    while wait_time < max_wait:
+        status = scanner.get_scan_status(vuln_scan_id)
+        print(f"漏洞扫描状态: {status['status']}")
+
+        if status['status'] == 'completed':
+            result = status.get('result', {})
+            summary = result.get('summary', {})
+            vulns = result.get('vulnerabilities', [])
+            print(f"漏洞扫描完成，发现 {len(vulns)} 个问题")
+            if summary:
+                print(f"摘要: {summary}")
+            for vuln in vulns[:5]:
+                print(f"  - [{vuln.get('severity', 'info')}] {vuln.get('title', 'N/A')}")
+            break
+        elif status['status'] == 'error':
+            print(f"❌ 漏洞扫描失败: {status.get('message', 'Unknown error')}")
+            return False
+        elif status['status'] == 'not_found':
+            print("漏洞扫描已完成并清理")
+            break
+        else:
+            time.sleep(3)
+            wait_time += 3
+
+    # 7. 检查漏洞扫描数据库记录
+    print("\n7. 检查漏洞扫描数据库记录")
+    print("-" * 30)
+
+    session = Session()
+    try:
+        latest_vuln_scan = (
+            session.query(Scan)
+            .filter_by(target_id=test_target['id'], scan_type=ScanType.VULNERABILITY.value)
+            .order_by(Scan.id.desc())
+            .first()
+        )
+
+        if latest_vuln_scan:
+            print(f"找到漏洞扫描记录: ID={latest_vuln_scan.id}, 状态={latest_vuln_scan.status}")
+            scan_results = session.query(ScanResult).filter_by(scan_id=latest_vuln_scan.id).all()
+            print(f"漏洞扫描结果数量: {len(scan_results)}")
+            for result in scan_results:
+                print(f"  结果类型: {result.result_type}")
+                if result.result_type == 'vulnerability':
+                    data = result.data or {}
+                    vulns = data.get('vulnerabilities', [])
+                    print(f"  记录漏洞数: {len(vulns)}")
+        else:
+            print("没有找到漏洞扫描记录")
+    finally:
+        session.close()
     
     print("\n" + "=" * 50)
     print("🎉 扫描功能测试完成!")
@@ -167,7 +222,7 @@ def test_scanning_functionality():
     print("✅ 目标提取: 正常工作") 
     print("✅ 状态监控: 正常工作")
     print("✅ 数据库存储: 正常工作")
-    print("⚠️  漏洞扫描: 待实现")
+    print("✅ 漏洞扫描: 已实现")
     print("=" * 50)
     
     return True

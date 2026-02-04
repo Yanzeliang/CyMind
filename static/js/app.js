@@ -57,6 +57,14 @@ document.addEventListener('DOMContentLoaded', function () {
         saveNewTarget();
     });
 
+    document.getElementById('updateTargetBtn').addEventListener('click', function () {
+        updateTarget();
+    });
+
+    document.getElementById('deleteTargetBtn').addEventListener('click', function () {
+        deleteTarget();
+    });
+
     // 导航栏点击事件
     document.getElementById('nav-targets').addEventListener('click', function (e) {
         e.preventDefault();
@@ -88,6 +96,14 @@ document.addEventListener('DOMContentLoaded', function () {
         document.querySelector('.page-title').textContent = '扫描历史';
         document.querySelector('.page-subtitle').textContent = '查看和分析历史扫描记录';
         loadScanHistory();
+    });
+
+    document.getElementById('nav-plugins').addEventListener('click', function (e) {
+        e.preventDefault();
+        setActiveNav(this);
+        document.querySelector('.page-title').textContent = '插件系统';
+        document.querySelector('.page-subtitle').textContent = '发现、管理与执行插件';
+        showPluginInterface();
     });
 
     // 加载扫描历史
@@ -138,6 +154,7 @@ document.addEventListener('DOMContentLoaded', function () {
         fetch(`/api/history/${scanId}`)
             .then(response => response.json())
             .then(data => {
+                const startedAt = data.started_at || data.created_at || 'N/A';
                 resultsContainer.innerHTML = `
                     <button class="btn btn-secondary mb-3" onclick="loadScanHistory()">
                         <i class="bi bi-arrow-left"></i> 返回列表
@@ -148,21 +165,14 @@ document.addEventListener('DOMContentLoaded', function () {
                         </div>
                         <div class="card-body">
                             <p><strong>扫描类型:</strong> ${data.scan_type}</p>
-                            <p><strong>扫描时间:</strong> ${data.created_at}</p>
+                            <p><strong>扫描时间:</strong> ${startedAt}</p>
                             <hr>
                             <div id="scan-details"></div>
                         </div>
                     </div>
                 `;
 
-                if (data.scan_type === 'port_scan') {
-                    displayPortScanResults(data.result);
-                } else {
-                    document.getElementById('scan-details').innerHTML =
-                        '<pre class="p-3 bg-light rounded">' +
-                        JSON.stringify(data.result, null, 2) +
-                        '</pre>';
-                }
+                renderScanDetails(data);
             })
             .catch(error => {
                 resultsContainer.innerHTML = `
@@ -264,6 +274,9 @@ function loadTargets() {
                                     <li><a class="dropdown-item" href="#" onclick="startQuickDirScan('${targetUrl}'); return false;">
                                         <i class="fas fa-folder-open me-2"></i>目录扫描
                                     </a></li>
+                                    <li><a class="dropdown-item" href="#" onclick="startQuickComprehensiveScan('${targetUrl}'); return false;">
+                                        <i class="fas fa-layer-group me-2"></i>综合漏洞扫描
+                                    </a></li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li><a class="dropdown-item" href="#" onclick="startQuickRecon('${targetUrl}', ${target.id}); return false;">
                                         <i class="fas fa-rocket me-2"></i>综合侦察
@@ -292,6 +305,9 @@ function loadTargets() {
 // 获取类型标签
 function getTypeLabel(type) {
     const labels = {
+        'domain': '域名',
+        'url': 'URL/API',
+        'ip': 'IP',
         'website': '网站',
         'api': 'API',
         'network': '网络',
@@ -308,13 +324,14 @@ function saveNewTarget() {
     const targetData = {
         name: document.getElementById('targetName').value || `目标-${new Date().toLocaleString()}`,
         url: document.getElementById('targetUrl').value,
+        ip: document.getElementById('targetIp').value,
         type: document.getElementById('targetType').value,
         tags: document.getElementById('targetTags').value.split(',').map(tag => tag.trim()).filter(tag => tag)
     };
 
     // 验证必填字段
-    if (!targetData.url) {
-        showNotification('请输入目标地址', 'warning');
+    if (!targetData.url && !targetData.ip) {
+        showNotification('请输入目标地址或IP', 'warning');
         return;
     }
 
@@ -354,7 +371,10 @@ function saveNewTarget() {
 
                 // 自动启动扫描
                 setTimeout(() => {
-                    startScan(targetData.url, 'port_scan');
+                    const scanTarget = targetData.url || targetData.ip;
+                    if (scanTarget) {
+                        startScan(scanTarget, 'port_scan');
+                    }
                 }, 1000);
             } else {
                 throw new Error(data.message || '未知错误');
@@ -404,7 +424,91 @@ function scanTarget(target, scanType) {
 
 // 编辑目标（占位符功能）
 function editTarget(targetId) {
-    showNotification('编辑功能即将推出', 'info');
+    fetch(`/api/targets/${targetId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'error') {
+                showNotification(data.message || '加载目标失败', 'danger');
+                return;
+            }
+            openEditTargetModal(data);
+        })
+        .catch(error => {
+            showNotification(`加载目标失败: ${error.message}`, 'danger');
+        });
+}
+
+function openEditTargetModal(target) {
+    document.getElementById('editTargetId').value = target.id;
+    document.getElementById('editTargetName').value = target.name || '';
+    document.getElementById('editTargetUrl').value = target.url || '';
+    document.getElementById('editTargetIp').value = target.ip_address || target.ip || '';
+    document.getElementById('editTargetType').value = target.type || 'domain';
+    document.getElementById('editTargetTags').value = (target.tags || []).join(', ');
+
+    const modal = new bootstrap.Modal(document.getElementById('editTargetModal'));
+    modal.show();
+}
+
+function updateTarget() {
+    const targetId = document.getElementById('editTargetId').value;
+    const payload = {
+        name: document.getElementById('editTargetName').value,
+        url: document.getElementById('editTargetUrl').value,
+        ip: document.getElementById('editTargetIp').value,
+        type: document.getElementById('editTargetType').value,
+        tags: document.getElementById('editTargetTags').value.split(',').map(t => t.trim()).filter(t => t)
+    };
+
+    if (!payload.url && !payload.ip) {
+        showNotification('请输入目标地址或IP', 'warning');
+        return;
+    }
+
+    fetch(`/api/targets/${targetId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('editTargetModal'));
+                modal.hide();
+                loadTargets();
+                showNotification('目标更新成功', 'success');
+            } else {
+                showNotification(data.message || '目标更新失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showNotification(`更新失败: ${error.message}`, 'danger');
+        });
+}
+
+function deleteTarget() {
+    const targetId = document.getElementById('editTargetId').value;
+    if (!targetId) return;
+
+    if (!confirm('确定要删除该目标吗？此操作不可撤销。')) {
+        return;
+    }
+
+    fetch(`/api/targets/${targetId}`, { method: 'DELETE' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('editTargetModal'));
+                modal.hide();
+                loadTargets();
+                showNotification('目标已删除', 'success');
+            } else {
+                showNotification(data.message || '删除失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showNotification(`删除失败: ${error.message}`, 'danger');
+        });
 }
 
 // 快速 Web 漏洞扫描
@@ -412,11 +516,17 @@ function startQuickWebScan(target) {
     showNotification(`正在启动 Web 漏洞扫描: ${target}`, 'info');
     const url = target.includes('://') ? target : `https://${target}`;
 
-    fetch('/api/vuln-scan/web', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_url: url })
-    })
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target_url: url };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/web', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
@@ -453,11 +563,17 @@ function startQuickServiceScan(target) {
     // 提取主机名/IP
     let host = target.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
 
-    fetch('/api/vuln-scan/service', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: host })
-    })
+    getOrCreateTarget(host)
+        .then(targetId => {
+            const payload = { target: host };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/service', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
@@ -490,11 +606,17 @@ function startQuickDirScan(target) {
     showNotification(`正在启动目录扫描: ${target}`, 'info');
     const url = target.includes('://') ? target : `https://${target}`;
 
-    fetch('/api/vuln-scan/directory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_url: url })
-    })
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target_url: url };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/directory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
@@ -520,6 +642,53 @@ function startQuickDirScan(target) {
         .catch(error => {
             showNotification(`请求失败: ${error.message}`, 'danger');
         });
+}
+
+// 快速综合漏洞扫描
+function startQuickComprehensiveScan(target) {
+    showNotification(`正在启动综合漏洞扫描: ${target}`, 'info');
+    const url = target.includes('://') ? target : `https://${target}`;
+
+    document.getElementById('nav-vuln-scan').click();
+    setTimeout(() => {
+        const input = document.getElementById('comprehensiveVulnTarget');
+        if (input) input.value = target;
+        const resultsDiv = document.getElementById('vuln-scan-results');
+        if (!resultsDiv) {
+            showNotification('无法加载漏洞扫描界面', 'danger');
+            return;
+        }
+
+        resultsDiv.innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border text-warning" role="status"></div>
+                <p class="mt-3">正在对 ${target} 执行综合漏洞扫描...</p>
+                <small class="text-muted" id="vuln-scan-status">初始化中...</small>
+            </div>
+        `;
+
+        getOrCreateTarget(target)
+            .then(targetId => {
+                const payload = { target_url: url };
+                if (targetId) payload.target_id = targetId;
+                return fetch('/api/vuln-scan/comprehensive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'started') {
+                    monitorVulnScan(data.scan_id, resultsDiv, 'comprehensive');
+                } else {
+                    resultsDiv.innerHTML = `<div class="alert alert-danger">扫描启动失败: ${data.message}</div>`;
+                }
+            })
+            .catch(error => {
+                resultsDiv.innerHTML = `<div class="alert alert-danger">请求失败: ${error.message}</div>`;
+            });
+    }, 300);
 }
 
 // 快速综合侦察
@@ -700,6 +869,34 @@ function displayPortScanResults(resultData) {
     }
 
     renderPortResults(detailsContainer, ports, message);
+}
+
+function renderScanDetails(scanData) {
+    const detailsContainer = document.getElementById('scan-details');
+    detailsContainer.innerHTML = '';
+
+    const results = Array.isArray(scanData.results) ? scanData.results : [];
+    if (results.length === 0) {
+        detailsContainer.innerHTML = '<div class="alert alert-info">没有扫描结果</div>';
+        return;
+    }
+
+    const serviceResult = results.find(r => r.type === 'service' && r.data && r.data.ports);
+    const vulnResult = results.find(r => r.type === 'vulnerability' && r.data && r.data.vulnerabilities);
+
+    if (serviceResult) {
+        displayPortScanResults(serviceResult.data);
+        return;
+    }
+
+    if (vulnResult) {
+        displayVulnScanResults(vulnResult.data.vulnerabilities, detailsContainer, scanData.scan_type || 'vulnerability');
+        return;
+    }
+
+    detailsContainer.innerHTML = `
+        <pre class="p-3 bg-light rounded border">${JSON.stringify(results, null, 2)}</pre>
+    `;
 }
 
 function normalisePortScanResult(resultData) {
@@ -970,6 +1167,22 @@ function showVulnScanInterface() {
             </div>
         </div>
         <div class="row mt-4">
+            <div class="col-12 mb-4">
+                <div class="card border-warning">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-layer-group me-2"></i>综合漏洞扫描</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">一次执行服务识别、Web漏洞检查与目录扫描</p>
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="comprehensiveVulnTarget" placeholder="https://example.com 或 192.168.1.1">
+                        </div>
+                        <button class="btn btn-warning" onclick="startComprehensiveVulnScan()">
+                            <i class="fas fa-play me-2"></i>开始综合扫描
+                        </button>
+                    </div>
+                </div>
+            </div>
             <div class="col-12">
                 <div class="card">
                     <div class="card-header">
@@ -990,6 +1203,179 @@ function showVulnScanInterface() {
                 </div>
             </div>
         </div>
+    `;
+}
+
+// 显示插件系统界面
+function showPluginInterface() {
+    const resultsContainer = document.getElementById('scan-results');
+    resultsContainer.innerHTML = `
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0"><i class="fas fa-plug me-2"></i>插件列表</h6>
+                        <button class="btn btn-sm btn-outline-light" onclick="discoverPlugins()">
+                            <i class="fas fa-sync-alt me-1"></i>发现
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div id="plugin-list" class="list-group small">
+                            <div class="text-muted">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-8">
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-terminal me-2"></i>执行插件</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">目标（URL 或 IP）</label>
+                            <input type="text" class="form-control" id="pluginTarget" placeholder="https://example.com 或 192.168.1.1">
+                        </div>
+                        <div class="text-muted small">
+                            从左侧选择插件并点击“执行”按钮。
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-clipboard-list me-2"></i>执行结果</h6>
+                    </div>
+                    <div class="card-body">
+                        <div id="plugin-results" class="text-muted">暂无结果</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    loadPlugins();
+}
+
+function loadPlugins() {
+    const listEl = document.getElementById('plugin-list');
+    if (!listEl) return;
+
+    fetch('/api/plugins')
+        .then(response => response.json())
+        .then(data => {
+            listEl.innerHTML = '';
+
+            if (!Array.isArray(data) || data.length === 0) {
+                listEl.innerHTML = '<div class="text-muted">未发现插件</div>';
+                return;
+            }
+
+            data.forEach(plugin => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item d-flex justify-content-between align-items-center';
+                const disabled = plugin.enabled === false;
+                item.innerHTML = `
+                    <div>
+                        <div><strong>${plugin.name}</strong> <small class="text-muted">v${plugin.version}</small></div>
+                        <div class="text-muted small">${plugin.description || '无描述'}</div>
+                        <div class="small text-muted">类型: ${plugin.type} ${disabled ? '(已禁用)' : ''}</div>
+                    </div>
+                    <div class="ms-2 text-end">
+                        <button class="btn btn-sm btn-primary mb-1" onclick="runPlugin('${plugin.name}')" ${disabled ? 'disabled' : ''}>
+                            执行
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="disablePlugin('${plugin.name}')">
+                            禁用
+                        </button>
+                    </div>
+                `;
+                listEl.appendChild(item);
+            });
+        })
+        .catch(error => {
+            listEl.innerHTML = `<div class="text-danger">加载失败: ${error.message}</div>`;
+        });
+}
+
+function discoverPlugins() {
+    fetch('/api/plugins/discover', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showNotification('插件发现完成', 'success');
+                loadPlugins();
+            } else {
+                showNotification(data.message || '插件发现失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showNotification(`插件发现失败: ${error.message}`, 'danger');
+        });
+}
+
+function runPlugin(pluginName) {
+    const target = document.getElementById('pluginTarget')?.value;
+    if (!target) {
+        showNotification('请输入目标地址或IP', 'warning');
+        return;
+    }
+
+    const resultsEl = document.getElementById('plugin-results');
+    resultsEl.innerHTML = '<div class="text-muted">执行中...</div>';
+
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const params = {
+                target_url: target,
+                target: target,
+                target_id: targetId
+            };
+            return fetch('/api/plugins/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plugin_name: pluginName, params })
+            });
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                renderPluginResult(data);
+            } else {
+                resultsEl.innerHTML = `<div class="alert alert-danger">${data.message || '执行失败'}</div>`;
+            }
+        })
+        .catch(error => {
+            resultsEl.innerHTML = `<div class="alert alert-danger">执行失败: ${error.message}</div>`;
+        });
+}
+
+function disablePlugin(pluginName) {
+    fetch(`/api/plugins/${pluginName}/disable`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                showNotification(data.message || '插件已禁用', 'success');
+                loadPlugins();
+            } else {
+                showNotification(data.message || '禁用失败', 'danger');
+            }
+        })
+        .catch(error => {
+            showNotification(`禁用失败: ${error.message}`, 'danger');
+        });
+}
+
+function renderPluginResult(data) {
+    const resultsEl = document.getElementById('plugin-results');
+    const vulnerabilities = Array.isArray(data.vulnerabilities) ? data.vulnerabilities : [];
+
+    if (vulnerabilities.length > 0) {
+        displayVulnScanResults(vulnerabilities, resultsEl, 'plugin');
+        return;
+    }
+
+    resultsEl.innerHTML = `
+        <pre class="p-3 bg-light rounded border">${JSON.stringify(data, null, 2)}</pre>
     `;
 }
 
@@ -1276,15 +1662,15 @@ function startDNSAnalysis() {
         .then(data => {
             if (!data) return;
 
-            if (data.status === 'completed' || data.dns) {
-                const dns = data.dns || {};
+            if (data.status === 'completed' || data.dns_results || data.dns) {
+                const dns = data.dns_results || data.dns || {};
                 let html = `<h6 class="mb-3"><i class="fas fa-globe-americas me-2"></i>DNS 分析结果</h6>`;
 
                 const recordTypes = ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA'];
                 let hasRecords = false;
 
                 recordTypes.forEach(type => {
-                    const records = dns[type] || dns[type.toLowerCase()];
+                    const records = (dns.records && dns.records[type]) || dns[type] || dns[type.toLowerCase()];
                     if (records && records.length > 0) {
                         hasRecords = true;
                         html += `
@@ -1341,7 +1727,7 @@ function startTechIdentification() {
             }
 
             // 调用技术栈识别 API
-            return fetch('/api/recon/tech', {
+            return fetch('/api/recon/technology', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ target_id: targetId })
@@ -1353,8 +1739,9 @@ function startTechIdentification() {
         .then(data => {
             if (!data) return;
 
-            if (data.status === 'completed' || data.technologies) {
-                const techs = data.technologies || [];
+            if (data.status === 'completed' || data.technology_results || data.technologies) {
+                const techPayload = data.technology_results || data.technologies || data;
+                const techs = Array.isArray(techPayload) ? techPayload : (techPayload.technologies || []);
                 if (techs.length === 0) {
                     resultsDiv.innerHTML = `
                         <div class="alert alert-info">
@@ -1467,7 +1854,7 @@ function startComprehensiveRecon() {
 // 监控侦察进度
 function monitorReconProgress(scanId, resultsDiv, target) {
     const checkStatus = () => {
-        fetch(`/api/recon/${scanId}`)
+        fetch(`/api/recon/scan/${scanId}`)
             .then(response => response.json())
             .then(data => {
                 const progressBar = document.getElementById('recon-progress');
@@ -1526,12 +1913,15 @@ function displayComprehensiveResults(data, container) {
     }
 
     // 技术栈
-    if (data.technologies && data.technologies.length > 0) {
+    const techList = Array.isArray(data.technologies)
+        ? data.technologies
+        : (data.technologies && data.technologies.technologies) || [];
+    if (techList.length > 0) {
         html += `
             <div class="card mb-3">
                 <div class="card-header"><i class="fas fa-microchip me-2"></i>技术栈</div>
                 <div class="card-body">
-                    ${data.technologies.map(t => `<span class="badge bg-info me-1 mb-1">${t.name}</span>`).join('')}
+                    ${techList.map(t => `<span class="badge bg-info me-1 mb-1">${t.name}</span>`).join('')}
                 </div>
             </div>
         `;
@@ -1542,13 +1932,18 @@ function displayComprehensiveResults(data, container) {
 
 // 辅助函数：获取或创建目标
 function getOrCreateTarget(target) {
+    const isIp = target.match(/^\d+\.\d+\.\d+\.\d+$/);
+    const targetUrl = target.includes('://') ? target : `https://${target}`;
+    const targetType = isIp ? 'ip' : (targetUrl.includes('/api') ? 'url' : 'domain');
+
     return fetch('/api/targets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             name: target,
-            url: target.includes('://') ? target : `https://${target}`,
-            type: target.match(/^\d+\.\d+\.\d+\.\d+$/) ? 'ip' : 'domain'
+            url: isIp ? '' : targetUrl,
+            ip: isIp ? target : '',
+            type: targetType
         })
     })
         .then(r => r.json())
@@ -1584,15 +1979,65 @@ function startWebVulnScan() {
     `;
 
     // 调用真实 API
-    fetch('/api/vuln-scan/web', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_url: target })
-    })
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target_url: target };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/web', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
                 monitorVulnScan(data.scan_id, resultsDiv, 'web');
+            } else {
+                resultsDiv.innerHTML = `<div class="alert alert-danger">扫描启动失败: ${data.message}</div>`;
+            }
+        })
+        .catch(error => {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">请求失败: ${error.message}</div>`;
+        });
+}
+
+// 综合漏洞扫描
+function startComprehensiveVulnScan() {
+    const target = document.getElementById('comprehensiveVulnTarget').value;
+    if (!target) {
+        showNotification('请输入目标地址或URL', 'warning');
+        return;
+    }
+
+    const resultsDiv = document.getElementById('vuln-scan-results');
+    resultsDiv.innerHTML = `
+        <div class="text-center py-4">
+            <div class="spinner-border text-warning" role="status">
+                <span class="visually-hidden">扫描中...</span>
+            </div>
+            <p class="mt-3">正在对 ${target} 执行综合漏洞扫描...</p>
+            <small class="text-muted" id="vuln-scan-status">初始化中...</small>
+        </div>
+    `;
+
+    const url = target.includes('://') ? target : `https://${target}`;
+
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target_url: url };
+            if (targetId) payload.target_id = targetId;
+            return fetch('/api/vuln-scan/comprehensive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'started') {
+                monitorVulnScan(data.scan_id, resultsDiv, 'comprehensive');
             } else {
                 resultsDiv.innerHTML = `<div class="alert alert-danger">扫描启动失败: ${data.message}</div>`;
             }
@@ -1629,7 +2074,15 @@ function monitorVulnScan(scanId, resultsDiv, scanType) {
 
 // 显示漏洞扫描结果
 function displayVulnScanResults(results, container, scanType) {
-    if (!results || results.length === 0) {
+    const payload = Array.isArray(results) ? { vulnerabilities: results } : (results || {});
+    const vulnerabilities = Array.isArray(payload.vulnerabilities) ? payload.vulnerabilities : [];
+    const services = Array.isArray(payload.services) ? payload.services : [];
+    const directories = Array.isArray(payload.directories) ? payload.directories : [];
+
+    window.lastVulnScanData = payload;
+    window.lastScanResults = vulnerabilities;
+
+    if (vulnerabilities.length === 0 && services.length === 0 && directories.length === 0) {
         container.innerHTML = `
             <div class="alert alert-success">
                 <i class="fas fa-check-circle me-2"></i>
@@ -1655,9 +2108,36 @@ function displayVulnScanResults(results, container, scanType) {
         'info': 'info'
     };
 
-    let html = `<h6 class="mb-3">发现 ${results.length} 个安全问题：</h6>`;
+    let html = '';
 
-    results.forEach(vuln => {
+    if (payload.summary) {
+        const summary = payload.summary || {};
+        const total = summary.total || vulnerabilities.length;
+        html += `
+            <div class="alert alert-secondary">
+                <strong>扫描摘要：</strong>
+                <span class="badge bg-dark ms-2">总计 ${total}</span>
+                <span class="badge bg-danger ms-2">严重 ${summary.critical || 0}</span>
+                <span class="badge bg-warning text-dark ms-2">高危 ${summary.high || 0}</span>
+                <span class="badge bg-info text-dark ms-2">中危 ${summary.medium || 0}</span>
+                <span class="badge bg-secondary ms-2">低危 ${summary.low || 0}</span>
+                <span class="badge bg-light text-dark ms-2">信息 ${summary.info || 0}</span>
+            </div>
+        `;
+    }
+
+    if (vulnerabilities.length > 0) {
+        html += `<h6 class="mb-3">发现 ${vulnerabilities.length} 个安全问题：</h6>`;
+    } else {
+        html += `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                未发现漏洞风险。
+            </div>
+        `;
+    }
+
+    vulnerabilities.forEach(vuln => {
         const severity = (vuln.severity || 'info').toLowerCase();
         const color = severityColors[severity] || 'secondary';
         const icon = severityIcons[severity] || 'info-circle';
@@ -1678,6 +2158,72 @@ function displayVulnScanResults(results, container, scanType) {
             </div>
         `;
     });
+
+    if (services.length > 0) {
+        html += `
+            <h6 class="mt-4 mb-3">服务信息（${services.length}）</h6>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>服务</th>
+                            <th>版本</th>
+                            <th>端口</th>
+                            <th>协议</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${services.map(service => `
+                            <tr>
+                                <td>${service.service || 'N/A'}</td>
+                                <td>${service.version || 'N/A'}</td>
+                                <td>${service.port || 'N/A'}</td>
+                                <td>${(service.protocol || 'tcp').toUpperCase()}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+
+    if (directories.length > 0) {
+        const statusColors = {
+            200: 'success',
+            301: 'info',
+            302: 'info',
+            403: 'warning',
+            500: 'danger'
+        };
+        html += `
+            <h6 class="mt-4 mb-3">目录/文件发现（${directories.length}）</h6>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>路径</th>
+                            <th>状态码</th>
+                            <th>大小</th>
+                            <th>类型</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${directories.map(item => {
+                            const color = statusColors[item.status_code] || 'secondary';
+                            return `
+                                <tr>
+                                    <td><a href="${item.url}" target="_blank">${item.url}</a></td>
+                                    <td><span class="badge bg-${color}">${item.status_code}</span></td>
+                                    <td>${formatBytes(item.content_length || 0)}</td>
+                                    <td>${item.content_type ? item.content_type.split(';')[0] : '-'}</td>
+                                </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
 
     // 添加导出按钮
     html += `
@@ -1710,11 +2256,17 @@ function startServiceVulnScan() {
         </div>
     `;
 
-    fetch('/api/vuln-scan/service', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target: target })
-    })
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target: target };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/service', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
@@ -1747,11 +2299,17 @@ function startDirScan() {
         </div>
     `;
 
-    fetch('/api/vuln-scan/directory', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target_url: target })
-    })
+    getOrCreateTarget(target)
+        .then(targetId => {
+            const payload = { target_url: target };
+            if (targetId) payload.target_id = targetId;
+
+            return fetch('/api/vuln-scan/directory', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        })
         .then(response => response.json())
         .then(data => {
             if (data.status === 'started') {
@@ -1844,8 +2402,16 @@ function formatBytes(bytes) {
 function exportVulnReport(scanType) {
     showNotification('正在生成报告...', 'info');
 
-    const target = document.getElementById('webTarget')?.value ||
-        document.getElementById('serviceVulnTarget')?.value || 'Unknown';
+    const target = document.getElementById('comprehensiveVulnTarget')?.value ||
+        document.getElementById('webTarget')?.value ||
+        document.getElementById('serviceVulnTarget')?.value ||
+        document.getElementById('dirTarget')?.value ||
+        'Unknown';
+
+    const lastData = window.lastVulnScanData || {};
+    const vulnerabilities = Array.isArray(lastData.vulnerabilities)
+        ? lastData.vulnerabilities
+        : (window.lastScanResults || []);
 
     fetch('/api/report/generate', {
         method: 'POST',
@@ -1855,7 +2421,10 @@ function exportVulnReport(scanType) {
             scan_data: {
                 target: target,
                 scan_type: scanType,
-                vulnerabilities: window.lastScanResults || []
+                vulnerabilities: vulnerabilities,
+                services: Array.isArray(lastData.services) ? lastData.services : [],
+                directories: Array.isArray(lastData.directories) ? lastData.directories : [],
+                summary: lastData.summary || {}
             }
         })
     })

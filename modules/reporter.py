@@ -179,7 +179,7 @@ class Reporter:
         # 漏洞结果
         if 'vulnerabilities' in scan_results:
             html_parts.append('<h2>⚠️ 发现的漏洞</h2>')
-            vulns = scan_results['vulnerabilities']
+            vulns = self._filter_false_positives(scan_results['vulnerabilities'])
             if vulns:
                 html_parts.append('<table><tr><th>漏洞名称</th><th>严重性</th><th>CVE</th><th>描述</th></tr>')
                 for vuln in vulns:
@@ -264,12 +264,13 @@ class Reporter:
             lines.extend(["", "---", ""])
         
         # 漏洞列表
-        if 'vulnerabilities' in scan_results and scan_results['vulnerabilities']:
+        filtered_vulns = self._filter_false_positives(scan_results.get('vulnerabilities', []))
+        if filtered_vulns:
             lines.extend([
                 "## ⚠️ 发现的漏洞",
                 ""
             ])
-            for i, vuln in enumerate(scan_results['vulnerabilities'], 1):
+            for i, vuln in enumerate(filtered_vulns, 1):
                 severity = vuln.get('severity', 'info').upper()
                 severity_icon = {'CRITICAL': '🔴', 'HIGH': '🟠', 'MEDIUM': '🟡', 'LOW': '🟢', 'INFO': '🔵'}.get(severity, '⚪')
                 lines.extend([
@@ -385,7 +386,10 @@ class Reporter:
                 "scan_type": scan_results.get("scan_type", "N/A")
             },
             "summary": self._generate_summary(scan_results),
-            "results": scan_results
+            "results": {
+                **scan_results,
+                "vulnerabilities": self._filter_false_positives(scan_results.get("vulnerabilities", []))
+            }
         }
         return json.dumps(report_data, indent=2, ensure_ascii=False)
     
@@ -404,7 +408,7 @@ class Reporter:
         }
         
         # 统计漏洞
-        vulnerabilities = scan_results.get('vulnerabilities', [])
+        vulnerabilities = self._filter_false_positives(scan_results.get('vulnerabilities', []))
         summary['total_vulnerabilities'] = len(vulnerabilities)
         
         for vuln in vulnerabilities:
@@ -448,6 +452,15 @@ class Reporter:
         summary['total_subdomains'] = len(scan_results.get('subdomains', []))
         
         return summary
+
+    def _filter_false_positives(self, vulnerabilities: List[Dict]) -> List[Dict]:
+        """Exclude vulnerabilities marked as false positives."""
+        filtered = []
+        for vuln in vulnerabilities or []:
+            if isinstance(vuln, dict) and vuln.get('is_false_positive'):
+                continue
+            filtered.append(vuln)
+        return filtered
     
     def save_report(self, report_content: str, file_path: str = None, 
                    report_format: str = 'html') -> str:

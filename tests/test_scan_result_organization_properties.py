@@ -8,6 +8,7 @@ from hypothesis import given, strategies as st, assume, settings
 from hypothesis.stateful import RuleBasedStateMachine, Bundle, rule, initialize, invariant
 import tempfile
 import os
+import uuid
 from datetime import datetime, timedelta
 
 from models import (
@@ -106,7 +107,7 @@ class ScanResultOrganizationMachine(RuleBasedStateMachine):
         """Initialize with some projects and targets"""
         # Create test project
         project_data = {
-            'name': 'Test Project',
+            'name': f"Test Project {uuid.uuid4().hex[:8]}",
             'description': 'Test project for scan result organization',
             'status': ProjectStatus.ACTIVE.value
         }
@@ -320,8 +321,8 @@ class ScanResultOrganizationMachine(RuleBasedStateMachine):
         sample_target_id = list(self.targets.keys())[0]
         sample_target = self.targets[sample_target_id]
         search_term = sample_target['data']['name'][:5]  # Search by partial name
-        
-        search_results = self.target_manager.search_targets(search_term)
+        project_id = sample_target['project_id']
+        search_results = self.target_manager.search_targets(search_term, project_id=project_id)
         
         # Results should be consistent with database state
         for result in search_results:
@@ -350,8 +351,9 @@ class ScanResultOrganizationMachine(RuleBasedStateMachine):
         # Test filtering by first tag of first target
         sample_target_id, sample_target = targets_with_tags[0]
         sample_tags = sample_target['data']['tags'][:1]  # Use first tag
+        project_id = sample_target['project_id']
         
-        filtered_results = self.target_manager.get_targets_by_tags(sample_tags)
+        filtered_results = self.target_manager.get_targets_by_tags(sample_tags, project_id=project_id)
         
         # Results should include our sample target
         result_ids = [result['id'] for result in filtered_results]
@@ -389,7 +391,9 @@ class ScanResultOrganizationMachine(RuleBasedStateMachine):
             target_data = target['data']
             
             # Target type should be consistent with data
-            if 'url' in target_data:
+            if target_data.get('type'):
+                expected_types = [self.target_manager._map_target_type(target_data['type'])]
+            elif 'url' in target_data:
                 expected_types = [TargetType.DOMAIN.value, TargetType.URL.value]
             elif 'ip' in target_data:
                 expected_types = [TargetType.IP.value, TargetType.NETWORK.value]
@@ -430,25 +434,37 @@ class TestScanResultOrganization:
         """Test that target search returns relevant results"""
         # Create a project
         project_result = self.project_manager.create_project({
-            'name': 'Search Test Project',
+            'name': f"Search Test Project {uuid.uuid4().hex[:8]}",
             'description': 'Project for testing search functionality'
         })
-        assume(project_result['status'] == 'success')
+        if project_result['status'] != 'success':
+            pytest.fail(f"Project creation failed: {project_result.get('message')}")
         project_id = project_result['project']['id']
         
         # Add targets
         added_targets = []
         for i, target_data in enumerate(targets):
-            if len(target_data['name'].strip()) == 0:
-                continue
-            
-            target_data['name'] = f"search_test_{i}_{target_data['name']}"
+            if len(target_data.get('name', '').strip()) == 0:
+                target_data['name'] = f"search_test_{i}"
+            else:
+                target_data['name'] = f"search_test_{i}_{target_data['name']}"
             result = self.target_manager.add_target(target_data, project_id)
             
             if result.get('status') == 'success':
                 added_targets.append(result['target'])
-        
-        assume(len(added_targets) > 0)
+
+        if not added_targets:
+            fallback = {
+                'name': f"search_fallback_{uuid.uuid4().hex[:6]}",
+                'url': f"https://example{uuid.uuid4().hex[:4]}.com",
+                'type': 'domain',
+                'tags': ['search']
+            }
+            result = self.target_manager.add_target(fallback, project_id)
+            if result.get('status') == 'success':
+                added_targets.append(result['target'])
+            else:
+                pytest.fail("Failed to add any target for search test")
         
         # Test search functionality
         for search_term in search_terms:
@@ -475,25 +491,37 @@ class TestScanResultOrganization:
         """Test that tag-based filtering works correctly"""
         # Create a project
         project_result = self.project_manager.create_project({
-            'name': 'Tag Filter Test Project',
+            'name': f"Tag Filter Test Project {uuid.uuid4().hex[:8]}",
             'description': 'Project for testing tag filtering'
         })
-        assume(project_result['status'] == 'success')
+        if project_result['status'] != 'success':
+            pytest.fail(f"Project creation failed: {project_result.get('message')}")
         project_id = project_result['project']['id']
         
         # Add targets with tags
         added_targets = []
         for i, target_data in enumerate(targets):
-            if len(target_data['name'].strip()) == 0:
-                continue
-            
-            target_data['name'] = f"tag_test_{i}_{target_data['name']}"
+            if len(target_data.get('name', '').strip()) == 0:
+                target_data['name'] = f"tag_test_{i}"
+            else:
+                target_data['name'] = f"tag_test_{i}_{target_data['name']}"
             result = self.target_manager.add_target(target_data, project_id)
             
             if result.get('status') == 'success':
                 added_targets.append((result['target'], target_data.get('tags', [])))
-        
-        assume(len(added_targets) > 0)
+
+        if not added_targets:
+            fallback = {
+                'name': f"tag_fallback_{uuid.uuid4().hex[:6]}",
+                'url': f"https://example{uuid.uuid4().hex[:4]}.com",
+                'type': 'domain',
+                'tags': ['fallback']
+            }
+            result = self.target_manager.add_target(fallback, project_id)
+            if result.get('status') == 'success':
+                added_targets.append((result['target'], fallback.get('tags', [])))
+            else:
+                pytest.fail("Failed to add any target for tag filter test")
         
         # Test tag filtering
         for tag_filter in tag_filters:
@@ -518,10 +546,11 @@ class TestScanResultOrganization:
         """Test that target statistics are accurate"""
         # Create a project
         project_result = self.project_manager.create_project({
-            'name': 'Statistics Test Project',
+            'name': f"Statistics Test Project {uuid.uuid4().hex[:8]}",
             'description': 'Project for testing statistics'
         })
-        assume(project_result['status'] == 'success')
+        if project_result['status'] != 'success':
+            pytest.fail(f"Project creation failed: {project_result.get('message')}")
         project_id = project_result['project']['id']
         
         # Add targets
@@ -530,10 +559,10 @@ class TestScanResultOrganization:
         expected_tags = {}
         
         for i, target_data in enumerate(targets):
-            if len(target_data['name'].strip()) == 0:
-                continue
-            
-            target_data['name'] = f"stats_test_{i}_{target_data['name']}"
+            if len(target_data.get('name', '').strip()) == 0:
+                target_data['name'] = f"stats_test_{i}"
+            else:
+                target_data['name'] = f"stats_test_{i}_{target_data['name']}"
             result = self.target_manager.add_target(target_data, project_id)
             
             if result.get('status') == 'success':
@@ -546,7 +575,22 @@ class TestScanResultOrganization:
                 for tag in target_data.get('tags', []):
                     expected_tags[tag] = expected_tags.get(tag, 0) + 1
         
-        assume(len(added_targets) > 0)
+        if not added_targets:
+            fallback = {
+                'name': f"stats_fallback_{uuid.uuid4().hex[:6]}",
+                'url': f"https://example{uuid.uuid4().hex[:4]}.com",
+                'type': 'domain',
+                'tags': ['stats']
+            }
+            result = self.target_manager.add_target(fallback, project_id)
+            if result.get('status') == 'success':
+                added_targets.append(result['target'])
+                target_type = result['target']['type']
+                expected_types[target_type] = expected_types.get(target_type, 0) + 1
+                for tag in fallback.get('tags', []):
+                    expected_tags[tag] = expected_tags.get(tag, 0) + 1
+            else:
+                pytest.fail("Failed to add any target for statistics test")
         
         # Get statistics
         stats = self.target_manager.get_target_statistics(project_id)

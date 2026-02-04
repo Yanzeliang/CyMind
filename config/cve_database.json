@@ -1,0 +1,29 @@
+[
+  {
+    "cve": "CVE-2021-41773",
+    "service_regex": "(apache|httpd)",
+    "version_regex": "\\b2\\.4\\.49\\b",
+    "severity": "critical",
+    "cvss": 9.8,
+    "description": "Apache HTTP Server 2.4.49 path traversal vulnerability.",
+    "remediation": "Upgrade Apache to 2.4.51 or later."
+  },
+  {
+    "cve": "CVE-2021-42013",
+    "service_regex": "(apache|httpd)",
+    "version_regex": "\\b2\\.4\\.50\\b",
+    "severity": "critical",
+    "cvss": 9.8,
+    "description": "Apache HTTP Server 2.4.50 path traversal and potential RCE.",
+    "remediation": "Upgrade Apache to 2.4.51 or later."
+  },
+  {
+    "cve": "CVE-2014-0160",
+    "service_regex": "(openssl)",
+    "version_regex": "\\b1\\.0\\.1[a-f]?\\b",
+    "severity": "high",
+    "cvss": 7.5,
+    "description": "OpenSSL Heartbleed information disclosure vulnerability.",
+    "remediation": "Upgrade OpenSSL to a patched version."
+  }
+]

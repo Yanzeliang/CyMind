@@ -10,16 +10,21 @@
 import subprocess
 import socket
 import ssl
-import json
 import logging
 import re
 import urllib.parse
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from datetime import datetime
 import threading
 import uuid
+
+from models import (
+    Session, Scan, ScanResult, Target, Vulnerability,
+    ScanType, ScanStatus, ResultType, Severity
+)
+from modules.vuln_database import VulnerabilityDatabase
 
 try:
     import requests
@@ -31,6 +36,16 @@ except ImportError:
 # Database operations are handled by the API layer in app.py
 
 logger = logging.getLogger(__name__)
+
+SEVERITY_ORDER = {
+    'critical': 5,
+    'high': 4,
+    'medium': 3,
+    'low': 2,
+    'info': 1
+}
+
+VALID_SEVERITIES = set(SEVERITY_ORDER.keys())
 
 
 @dataclass
@@ -129,25 +144,33 @@ class VulnScanner:
             r'sqlite_',
             r'Unclosed quotation mark',
         ]
+
+        # CVE database
+        self.vuln_db = VulnerabilityDatabase()
+
+    def _normalize_severity(self, severity: str) -> str:
+        value = (severity or Severity.INFO.value).lower()
+        return value if value in VALID_SEVERITIES else Severity.INFO.value
     
     def start_web_vuln_scan(self, target_url: str, target_id: int = None) -> Dict:
         """启动 Web 漏洞扫描"""
         scan_id = str(uuid.uuid4())
+        normalized_url = self._normalize_url(target_url)
         
         with self._lock:
             self.active_scans[scan_id] = {
                 'status': 'running',
                 'type': 'web_vuln',
-                'target': target_url,
+                'target': normalized_url,
                 'started_at': datetime.now().isoformat(),
                 'results': [],
                 'progress': 0
             }
         
         # 后台执行扫描
-        self.executor.submit(self._execute_web_vuln_scan, scan_id, target_url, target_id)
+        self.executor.submit(self._execute_web_vuln_scan, scan_id, normalized_url, target_id)
         
-        logger.info(f"Web 漏洞扫描启动: {target_url}, scan_id={scan_id}")
+        logger.info(f"Web 漏洞扫描启动: {normalized_url}, scan_id={scan_id}")
         return {
             'status': 'started',
             'scan_id': scan_id,
@@ -187,6 +210,8 @@ class VulnScanner:
             self._update_scan_progress(scan_id, 90, "检测敏感文件...")
             sensitive_vulns = self._check_sensitive_files(target_url)
             vulnerabilities.extend(sensitive_vulns)
+
+            vulnerabilities = self._dedupe_vulnerabilities(vulnerabilities)
             
             # 完成扫描
             with self._lock:
@@ -194,12 +219,210 @@ class VulnScanner:
                 self.active_scans[scan_id]['progress'] = 100
                 self.active_scans[scan_id]['results'] = [asdict(v) for v in vulnerabilities]
                 self.active_scans[scan_id]['completed_at'] = datetime.now().isoformat()
+
+            # Persist results if target_id available
+            if target_id:
+                db_scan_id = self._persist_scan_results(
+                    target_id=target_id,
+                    scan_type=ScanType.WEB_APP.value,
+                    vulnerabilities=vulnerabilities,
+                    extra_data={
+                        'target_url': target_url,
+                        'scan_subtype': 'web_vuln'
+                    }
+                )
+                if db_scan_id:
+                    with self._lock:
+                        self.active_scans[scan_id]['db_scan_id'] = db_scan_id
             
             logger.info(f"Web 漏洞扫描完成: scan_id={scan_id}, 发现 {len(vulnerabilities)} 个问题")
             
         except Exception as e:
             self._update_scan_error(scan_id, str(e))
             logger.error(f"Web 漏洞扫描错误: {e}")
+
+    def _normalize_url(self, url: str) -> str:
+        """Normalize URL and ensure scheme."""
+        if not url:
+            return ""
+        url = url.strip()
+        if not url.startswith(('http://', 'https://')):
+            url = f"http://{url}"
+        return url
+
+    def _extract_host(self, target: str) -> str:
+        """Extract host from URL or raw host input."""
+        if not target:
+            return ""
+        candidate = target.strip()
+        if not candidate.startswith(('http://', 'https://')):
+            candidate = f"http://{candidate}"
+        parsed = urllib.parse.urlparse(candidate)
+        return parsed.hostname or target
+
+    def _run_web_checks(self, target_url: str) -> List[VulnerabilityResult]:
+        """Run web-focused vulnerability checks."""
+        vulnerabilities: List[VulnerabilityResult] = []
+        normalized_url = self._normalize_url(target_url)
+
+        # Basic security headers
+        vulnerabilities.extend(self._check_security_headers(normalized_url))
+
+        # SSL/TLS assessment
+        vulnerabilities.extend(self._check_ssl_config(normalized_url))
+
+        # XSS
+        vulnerabilities.extend(self._check_xss(normalized_url))
+
+        # SQLi
+        vulnerabilities.extend(self._check_sql_injection(normalized_url))
+
+        # Sensitive files
+        vulnerabilities.extend(self._check_sensitive_files(normalized_url))
+
+        return vulnerabilities
+
+    def _scan_directories(self, target_url: str, dirs: List[str]) -> List[Dict[str, Any]]:
+        """Scan for common directories/files and return results."""
+        if not REQUESTS_AVAILABLE:
+            return []
+
+        base_url = self._normalize_url(target_url).rstrip('/')
+        found_dirs: List[Dict[str, Any]] = []
+
+        for directory in dirs:
+            test_url = f"{base_url}/{directory}"
+            try:
+                response = requests.get(
+                    test_url,
+                    timeout=5,
+                    verify=False,
+                    allow_redirects=False
+                )
+
+                if response.status_code in [200, 301, 302, 303, 307, 403]:
+                    result = DirectoryScanResult(
+                        url=test_url,
+                        status_code=response.status_code,
+                        content_length=len(response.content),
+                        content_type=response.headers.get('Content-Type', ''),
+                        redirect_url=response.headers.get('Location', '')
+                    )
+                    found_dirs.append(asdict(result))
+            except requests.RequestException:
+                continue
+
+        return found_dirs
+
+    def _parse_nmap_service_output(self, output: str, host: str) -> List[Dict[str, Any]]:
+        """Parse nmap output lines to extract services and versions."""
+        services: List[Dict[str, Any]] = []
+
+        for line in output.splitlines():
+            line = line.strip()
+            if not line or not re.match(r'^\d+/\w+', line):
+                continue
+
+            # Example: 80/tcp open http Apache httpd 2.4.49 ((Unix))
+            match = re.match(r'^(\d+)/(\w+)\s+(\S+)\s+(\S+)\s*(.*)$', line)
+            if not match:
+                continue
+
+            port = int(match.group(1))
+            proto = match.group(2)
+            state = match.group(3)
+            service = match.group(4)
+            version = match.group(5).strip() if match.group(5) else ""
+
+            if state.lower() != 'open':
+                continue
+
+            services.append({
+                'host': host,
+                'port': port,
+                'protocol': proto,
+                'service': service,
+                'version': version
+            })
+
+        return services
+
+    def _match_cve_signatures(self, services: List[Dict[str, Any]]) -> List[VulnerabilityResult]:
+        """Match services against CVE database."""
+        matches: List[VulnerabilityResult] = []
+
+        for service in services:
+            service_name = service.get('service') or ''
+            version = service.get('version') or ''
+            if not version:
+                continue
+
+            for sig in self.vuln_db.match_vulnerabilities({'service': service_name, 'version': version}):
+                severity = self._normalize_severity(sig.get('severity', 'high'))
+                matches.append(VulnerabilityResult(
+                    title=f"潜在已知漏洞: {sig.get('cve')}",
+                    severity=severity,
+                    description=sig.get('description', '检测到可能的已知漏洞版本匹配。'),
+                    cve=sig.get('cve'),
+                    cvss=sig.get('cvss'),
+                    affected_url=f"{service.get('host')}:{service.get('port')}",
+                    affected_parameter=service.get('service'),
+                    remediation=sig.get('remediation', '建议升级到安全版本。'),
+                    confidence=0.6
+                ))
+
+        return matches
+
+    def _dedupe_vulnerabilities(self, vulnerabilities: List[VulnerabilityResult]) -> List[VulnerabilityResult]:
+        """Remove duplicate vulnerabilities based on key fields."""
+        seen = set()
+        deduped: List[VulnerabilityResult] = []
+
+        for vuln in vulnerabilities:
+            vuln.severity = self._normalize_severity(vuln.severity)
+            key = (
+                vuln.title,
+                vuln.cve or '',
+                vuln.affected_url or '',
+                vuln.affected_parameter or ''
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(vuln)
+
+        return deduped
+
+    def _build_scan_summary(self, vulnerabilities: List[VulnerabilityResult]) -> Dict[str, int]:
+        summary = {
+            'total': 0,
+            'critical': 0,
+            'high': 0,
+            'medium': 0,
+            'low': 0,
+            'info': 0
+        }
+        for vuln in vulnerabilities:
+            severity = (vuln.severity or 'info').lower()
+            summary['total'] += 1
+            if severity in summary:
+                summary[severity] += 1
+            else:
+                summary['info'] += 1
+        return summary
+
+    def _highest_severity(self, vulnerabilities: List[VulnerabilityResult]) -> str:
+        if not vulnerabilities:
+            return Severity.INFO.value
+        highest = max(vulnerabilities, key=lambda v: SEVERITY_ORDER.get((v.severity or 'info').lower(), 1))
+        return (highest.severity or Severity.INFO.value).lower()
+
+    def _average_confidence(self, vulnerabilities: List[VulnerabilityResult]) -> float:
+        if not vulnerabilities:
+            return 0.5
+        total = sum(v.confidence for v in vulnerabilities if v.confidence is not None)
+        count = len([v for v in vulnerabilities if v.confidence is not None])
+        return round(total / count, 3) if count else 0.5
     
     def _check_security_headers(self, url: str) -> List[VulnerabilityResult]:
         """检查安全响应头"""
@@ -404,21 +627,22 @@ class VulnScanner:
                             target_id: int = None) -> Dict:
         """启动目录扫描"""
         scan_id = str(uuid.uuid4())
+        normalized_url = self._normalize_url(target_url)
         
         with self._lock:
             self.active_scans[scan_id] = {
                 'status': 'running',
                 'type': 'directory',
-                'target': target_url,
+                'target': normalized_url,
                 'started_at': datetime.now().isoformat(),
                 'results': [],
                 'progress': 0
             }
         
         dirs_to_scan = wordlist if wordlist else self.common_dirs
-        self.executor.submit(self._execute_directory_scan, scan_id, target_url, dirs_to_scan, target_id)
+        self.executor.submit(self._execute_directory_scan, scan_id, normalized_url, dirs_to_scan, target_id)
         
-        logger.info(f"目录扫描启动: {target_url}, scan_id={scan_id}")
+        logger.info(f"目录扫描启动: {normalized_url}, scan_id={scan_id}")
         return {
             'status': 'started',
             'scan_id': scan_id,
@@ -470,6 +694,22 @@ class VulnScanner:
                 self.active_scans[scan_id]['progress'] = 100
                 self.active_scans[scan_id]['results'] = found_dirs
                 self.active_scans[scan_id]['completed_at'] = datetime.now().isoformat()
+
+            if target_id:
+                db_scan_id = self._persist_scan_results(
+                    target_id=target_id,
+                    scan_type=ScanType.WEB_APP.value,
+                    vulnerabilities=[],
+                    extra_data={
+                        'target_url': target_url,
+                        'directories': found_dirs,
+                        'scan_subtype': 'directory'
+                    },
+                    result_type=ResultType.INFORMATION.value
+                )
+                if db_scan_id:
+                    with self._lock:
+                        self.active_scans[scan_id]['db_scan_id'] = db_scan_id
             
             logger.info(f"目录扫描完成: scan_id={scan_id}, 发现 {len(found_dirs)} 个路径")
             
@@ -480,57 +720,151 @@ class VulnScanner:
     def start_service_vuln_scan(self, target: str, target_id: int = None) -> Dict:
         """启动服务漏洞扫描（使用 nmap 脚本）"""
         scan_id = str(uuid.uuid4())
+        host = self._extract_host(target)
         
         with self._lock:
             self.active_scans[scan_id] = {
                 'status': 'running',
                 'type': 'service_vuln',
-                'target': target,
+                'target': host or target,
                 'started_at': datetime.now().isoformat(),
                 'results': [],
                 'progress': 0
             }
         
-        self.executor.submit(self._execute_service_vuln_scan, scan_id, target, target_id)
+        self.executor.submit(self._execute_service_vuln_scan, scan_id, host or target, target_id)
         
-        logger.info(f"服务漏洞扫描启动: {target}, scan_id={scan_id}")
+        logger.info(f"服务漏洞扫描启动: {host or target}, scan_id={scan_id}")
         return {
             'status': 'started',
             'scan_id': scan_id,
             'message': '服务漏洞扫描已启动'
         }
+
+    def start_comprehensive_scan(self,
+                                 target: Dict[str, Any],
+                                 target_id: Optional[int] = None,
+                                 include_directories: bool = True) -> Dict:
+        """启动综合漏洞扫描（服务 + Web + 目录）"""
+        scan_id = str(uuid.uuid4())
+        display_target = target.get('url') or target.get('ip') or target.get('name') or ''
+
+        with self._lock:
+            self.active_scans[scan_id] = {
+                'status': 'running',
+                'type': 'comprehensive',
+                'target': display_target,
+                'started_at': datetime.now().isoformat(),
+                'results': {},
+                'progress': 0
+            }
+
+        self.executor.submit(
+            self._execute_comprehensive_scan,
+            scan_id,
+            target,
+            target_id,
+            include_directories
+        )
+
+        logger.info(f"综合漏洞扫描启动: {display_target}, scan_id={scan_id}")
+        return {
+            'status': 'started',
+            'scan_id': scan_id,
+            'message': '综合漏洞扫描已启动'
+        }
+
+    def _execute_comprehensive_scan(self,
+                                    scan_id: str,
+                                    target: Dict[str, Any],
+                                    target_id: Optional[int] = None,
+                                    include_directories: bool = True):
+        """执行综合漏洞扫描（服务 + Web + 目录）"""
+        if not REQUESTS_AVAILABLE:
+            self._update_scan_error(scan_id, "请安装 requests 库: pip install requests")
+            return
+
+        try:
+            target_url = target.get('url') or ""
+            ip_addr = target.get('ip') or target.get('ip_address') or ""
+            name = target.get('name') or ""
+
+            host = self._extract_host(target_url) if target_url else (ip_addr or name)
+            normalized_url = self._normalize_url(target_url) if target_url else ""
+
+            if not host and not normalized_url:
+                self._update_scan_error(scan_id, "无法确定扫描目标")
+                return
+
+            vulnerabilities: List[VulnerabilityResult] = []
+            services: List[Dict[str, Any]] = []
+            directories: List[Dict[str, Any]] = []
+
+            self._update_scan_progress(scan_id, 10, "准备服务扫描...")
+
+            if host:
+                self._update_scan_progress(scan_id, 20, "执行服务漏洞扫描...")
+                services, service_vulns = self._scan_services(host)
+                vulnerabilities.extend(service_vulns)
+
+            if normalized_url:
+                self._update_scan_progress(scan_id, 50, "执行 Web 漏洞检查...")
+                web_vulns = self._run_web_checks(normalized_url)
+                vulnerabilities.extend(web_vulns)
+
+                if include_directories:
+                    self._update_scan_progress(scan_id, 75, "执行目录扫描...")
+                    directories = self._scan_directories(normalized_url, self.common_dirs)
+
+            vulnerabilities = self._dedupe_vulnerabilities(vulnerabilities)
+            summary = self._build_scan_summary(vulnerabilities)
+
+            result_payload = {
+                "vulnerabilities": [asdict(v) for v in vulnerabilities],
+                "services": services,
+                "directories": directories,
+                "summary": summary
+            }
+
+            with self._lock:
+                self.active_scans[scan_id]['status'] = 'completed'
+                self.active_scans[scan_id]['progress'] = 100
+                self.active_scans[scan_id]['results'] = result_payload
+                self.active_scans[scan_id]['completed_at'] = datetime.now().isoformat()
+
+            if target_id:
+                db_scan_id = self._persist_scan_results(
+                    target_id=target_id,
+                    scan_type=ScanType.VULNERABILITY.value,
+                    vulnerabilities=vulnerabilities,
+                    extra_data={
+                        "target_url": normalized_url or target_url,
+                        "services": services,
+                        "directories": directories,
+                        "scan_subtype": "comprehensive"
+                    }
+                )
+                if db_scan_id:
+                    with self._lock:
+                        self.active_scans[scan_id]['db_scan_id'] = db_scan_id
+
+            logger.info(f"综合漏洞扫描完成: scan_id={scan_id}, 发现 {len(vulnerabilities)} 个问题")
+
+        except Exception as exc:
+            self._update_scan_error(scan_id, str(exc))
+            logger.error(f"综合漏洞扫描错误: {exc}")
     
     def _execute_service_vuln_scan(self, scan_id: str, target: str, target_id: int = None):
         """执行服务漏洞扫描"""
         try:
-            vulnerabilities = []
-            
-            # 尝试使用 nmap 的漏洞扫描脚本
-            self._update_scan_progress(scan_id, 20, "运行 nmap 漏洞脚本...")
-            
-            try:
-                # 使用 nmap 的 vuln 脚本类别
-                result = subprocess.run(
-                    ['nmap', '-sV', '--script=vuln', '-T4', '--top-ports', '100', target],
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5分钟超时
-                )
-                
-                self._update_scan_progress(scan_id, 80, "解析扫描结果...")
-                
-                # 解析 nmap 输出查找漏洞
-                output = result.stdout
-                vulns_found = self._parse_nmap_vuln_output(output, target)
-                vulnerabilities.extend(vulns_found)
-                
-            except FileNotFoundError:
-                # nmap 未安装，使用基础检测
-                self._update_scan_progress(scan_id, 50, "nmap 未安装，使用基础检测...")
-                basic_vulns = self._basic_service_check(target)
-                vulnerabilities.extend(basic_vulns)
-            except subprocess.TimeoutExpired:
-                logger.warning("nmap 扫描超时")
+            vulnerabilities: List[VulnerabilityResult] = []
+            services: List[Dict[str, Any]] = []
+
+            self._update_scan_progress(scan_id, 20, "运行服务探测与漏洞检查...")
+
+            services, vulnerabilities = self._scan_services(target)
+            vulnerabilities = self._dedupe_vulnerabilities(vulnerabilities)
+            self._update_scan_progress(scan_id, 80, "解析扫描结果...")
             
             # 完成扫描
             with self._lock:
@@ -538,6 +872,21 @@ class VulnScanner:
                 self.active_scans[scan_id]['progress'] = 100
                 self.active_scans[scan_id]['results'] = [asdict(v) for v in vulnerabilities]
                 self.active_scans[scan_id]['completed_at'] = datetime.now().isoformat()
+
+            if target_id:
+                db_scan_id = self._persist_scan_results(
+                    target_id=target_id,
+                    scan_type=ScanType.NETWORK.value,
+                    vulnerabilities=vulnerabilities,
+                    extra_data={
+                        'target': target,
+                        'services': services,
+                        'scan_subtype': 'service_vuln'
+                    }
+                )
+                if db_scan_id:
+                    with self._lock:
+                        self.active_scans[scan_id]['db_scan_id'] = db_scan_id
             
             logger.info(f"服务漏洞扫描完成: scan_id={scan_id}")
             
@@ -612,6 +961,171 @@ class VulnScanner:
                 pass
         
         return vulnerabilities
+
+    def _scan_services(self, target: str) -> Tuple[List[Dict[str, Any]], List[VulnerabilityResult]]:
+        """Scan services and match vulnerabilities."""
+        services: List[Dict[str, Any]] = []
+        vulnerabilities: List[VulnerabilityResult] = []
+
+        try:
+            result = subprocess.run(
+                ['nmap', '-sV', '--script=vuln', '-T4', '--top-ports', '100', target],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+
+            output = result.stdout
+            if output:
+                services = self._parse_nmap_service_output(output, target)
+                vulnerabilities.extend(self._parse_nmap_vuln_output(output, target))
+
+        except FileNotFoundError:
+            logger.warning("nmap 未安装，使用基础服务检查")
+            vulnerabilities.extend(self._basic_service_check(target))
+            return services, vulnerabilities
+        except subprocess.TimeoutExpired:
+            logger.warning("nmap 服务扫描超时")
+        except Exception as e:
+            logger.error(f"服务扫描错误: {e}")
+
+        if services:
+            vulnerabilities.extend(self._match_cve_signatures(services))
+
+        return services, vulnerabilities
+
+    def run_comprehensive_scan(self, target: Dict[str, Any], target_id: Optional[int] = None,
+                               include_directories: bool = True) -> Dict[str, Any]:
+        """Run comprehensive vulnerability scan (service + web + directory)."""
+        if not REQUESTS_AVAILABLE:
+            return {"status": "error", "message": "请安装 requests 库: pip install requests"}
+
+        target_url = target.get('url') or ""
+        ip_addr = target.get('ip') or target.get('ip_address') or ""
+        name = target.get('name') or ""
+
+        host = self._extract_host(target_url) if target_url else (ip_addr or name)
+        normalized_url = self._normalize_url(target_url) if target_url else ""
+
+        if not host and not normalized_url:
+            return {"status": "error", "message": "无法确定扫描目标"}
+
+        vulnerabilities: List[VulnerabilityResult] = []
+        services: List[Dict[str, Any]] = []
+        directories: List[Dict[str, Any]] = []
+
+        # Service-level scanning
+        if host:
+            services, service_vulns = self._scan_services(host)
+            vulnerabilities.extend(service_vulns)
+
+        # Web-level scanning
+        if normalized_url:
+            web_vulns = self._run_web_checks(normalized_url)
+            vulnerabilities.extend(web_vulns)
+
+            if include_directories:
+                directories = self._scan_directories(normalized_url, self.common_dirs)
+
+        vulnerabilities = self._dedupe_vulnerabilities(vulnerabilities)
+        summary = self._build_scan_summary(vulnerabilities)
+
+        result_payload = {
+            "status": "completed",
+            "target": normalized_url or host,
+            "scan_type": "vulnerability_scan",
+            "summary": summary,
+            "vulnerabilities": [asdict(v) for v in vulnerabilities],
+            "services": services,
+            "directories": directories
+        }
+
+        if target_id:
+            db_scan_id = self._persist_scan_results(
+                target_id=target_id,
+                scan_type=ScanType.VULNERABILITY.value,
+                vulnerabilities=vulnerabilities,
+                extra_data={
+                    "target_url": normalized_url or target_url,
+                    "services": services,
+                    "directories": directories,
+                    "scan_subtype": "comprehensive"
+                }
+            )
+            if db_scan_id:
+                result_payload["db_scan_id"] = db_scan_id
+
+        return result_payload
+
+    def _persist_scan_results(self,
+                              target_id: int,
+                              scan_type: str,
+                              vulnerabilities: List[VulnerabilityResult],
+                              extra_data: Optional[Dict[str, Any]] = None,
+                              result_type: str = ResultType.VULNERABILITY.value) -> Optional[int]:
+        """Persist scan results to database."""
+        session = Session()
+        try:
+            target = session.query(Target).filter_by(id=target_id).first()
+            if not target:
+                logger.warning(f"目标不存在，无法保存扫描结果: target_id={target_id}")
+                return None
+
+            scan = Scan(
+                project_id=target.project_id,
+                target_id=target.id,
+                scan_type=scan_type,
+                status=ScanStatus.COMPLETED.value,
+                completed_at=datetime.now()
+            )
+            session.add(scan)
+            session.commit()
+            session.refresh(scan)
+
+            highest_sev = self._highest_severity(vulnerabilities)
+            avg_conf = self._average_confidence(vulnerabilities)
+
+            data_payload = {
+                "vulnerabilities": [asdict(v) for v in vulnerabilities],
+                "summary": self._build_scan_summary(vulnerabilities)
+            }
+            if extra_data:
+                data_payload.update(extra_data)
+
+            scan_result = ScanResult(
+                scan_id=scan.id,
+                result_type=result_type,
+                data=data_payload,
+                severity=highest_sev,
+                confidence=avg_conf
+            )
+            session.add(scan_result)
+            session.commit()
+            session.refresh(scan_result)
+
+            # Persist individual vulnerabilities
+            for vuln in vulnerabilities:
+                vuln_record = Vulnerability(
+                    scan_result_id=scan_result.id,
+                    cve_id=vuln.cve,
+                    title=vuln.title,
+                    description=vuln.description,
+                    severity=(vuln.severity or Severity.INFO.value),
+                    cvss_score=vuln.cvss,
+                    affected_service=vuln.affected_parameter or vuln.affected_url,
+                    remediation=vuln.remediation
+                )
+                session.add(vuln_record)
+
+            session.commit()
+            return scan.id
+
+        except Exception as exc:
+            session.rollback()
+            logger.error(f"保存扫描结果失败: {exc}")
+            return None
+        finally:
+            session.close()
     
     def _update_scan_progress(self, scan_id: str, progress: int, status: str):
         """更新扫描进度"""

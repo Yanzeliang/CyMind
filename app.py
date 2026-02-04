@@ -3,12 +3,13 @@ import subprocess
 import os
 import json
 import logging
-from models import Session, ScanResult, Scan, Target, Project
+from models import Session, ScanResult, Scan, Target, Project, ResultType, Vulnerability
 from modules.target_manager import TargetManager
 from modules.project_manager import ProjectManager
 from modules.scanner import Scanner
 from modules.reporter import Reporter
 from modules.recon_module import ReconModule
+from modules.plugin_system import PluginSystem
 
 # 导入增强的核心模块
 from core.config import get_config, init_config
@@ -31,6 +32,7 @@ project_manager = ProjectManager()
 scanner = Scanner()
 reporter = Reporter()
 recon_module = ReconModule()
+plugin_system = PluginSystem()
 
 @app.route('/')
 def index():
@@ -70,7 +72,10 @@ def start_scan():
     
     # 查找目标信息
     targets = target_manager.get_targets()
-    target_info = next((t for t in targets if t['url'] == target), None)
+    target_info = next(
+        (t for t in targets if t.get('url') == target or t.get('ip') == target or t.get('name') == target),
+        None
+    )
     
     if not target_info:
         logger.warning(f"目标不存在: {target}")
@@ -646,6 +651,58 @@ def start_service_vuln_scan():
         logger.error(f"启动服务漏洞扫描失败: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/vuln-scan/comprehensive', methods=['POST'])
+@error_handler_decorator(error_handler)
+def start_comprehensive_vuln_scan():
+    """启动综合漏洞扫描（服务 + Web + 目录）"""
+    try:
+        data = request.get_json() or {}
+        target_id = data.get('target_id')
+        include_directories = data.get('include_directories', True)
+
+        target_info = {}
+
+        if target_id:
+            session = Session()
+            try:
+                target = session.query(Target).filter_by(id=target_id).first()
+                if not target:
+                    return jsonify({"status": "error", "message": "目标不存在"}), 404
+                target_info = {
+                    "id": target.id,
+                    "name": target.name,
+                    "url": target.url,
+                    "ip": target.ip_address or target.ip,
+                    "ip_address": target.ip_address
+                }
+            finally:
+                session.close()
+        else:
+            target_url = data.get('target_url') or data.get('url')
+            target = data.get('target') or data.get('host') or target_url
+            if not target and not target_url:
+                return jsonify({"status": "error", "message": "缺少目标"}), 400
+
+            if target_url:
+                target_info["url"] = target_url
+            if target:
+                if isinstance(target, str) and target.startswith(('http://', 'https://')):
+                    target_info["url"] = target
+                else:
+                    target_info["name"] = target
+
+        result = vuln_scanner.start_comprehensive_scan(
+            target_info,
+            target_id=target_id,
+            include_directories=include_directories
+        )
+        logger.info(f"综合漏洞扫描启动: {target_info}")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"启动综合漏洞扫描失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/api/vuln-scan/<scan_id>', methods=['GET'])
 @error_handler_decorator(error_handler)
 def get_vuln_scan_status(scan_id):
@@ -676,6 +733,35 @@ def generate_report():
             try:
                 scan = session.query(Scan).filter_by(id=scan_id).first()
                 if scan:
+                    vulnerabilities = []
+                    # Prefer normalized vulnerabilities table (exclude false positives)
+                    vuln_records = (
+                        session.query(Vulnerability)
+                        .join(ScanResult, Vulnerability.scan_result_id == ScanResult.id)
+                        .filter(ScanResult.scan_id == scan_id, Vulnerability.is_false_positive == False)
+                        .all()
+                    )
+                    if vuln_records:
+                        for v in vuln_records:
+                            vulnerabilities.append({
+                                'id': v.id,
+                                'cve': v.cve_id,
+                                'title': v.title,
+                                'description': v.description,
+                                'severity': v.severity,
+                                'cvss': v.cvss_score,
+                                'affected_service': v.affected_service,
+                                'remediation': v.remediation
+                            })
+                    else:
+                        for r in scan.results:
+                            if not isinstance(r.data, dict):
+                                continue
+                            if isinstance(r.data.get('vulnerabilities'), list):
+                                vulnerabilities.extend(r.data.get('vulnerabilities', []))
+                            elif all(k in r.data for k in ('title', 'severity')):
+                                vulnerabilities.append(r.data)
+
                     scan_data = {
                         'target': scan.target.name or scan.target.url,
                         'scan_type': scan.scan_type,
@@ -688,6 +774,8 @@ def generate_report():
                             } for r in scan.results
                         ]
                     }
+                    if vulnerabilities:
+                        scan_data['vulnerabilities'] = vulnerabilities
             finally:
                 session.close()
         
@@ -736,6 +824,93 @@ def download_report(filename):
         return send_from_directory(reports_dir, filename, as_attachment=True)
     except Exception as e:
         logger.error(f"下载报告失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# ===== 漏洞标记 API =====
+@app.route('/api/vulnerabilities/<int:vuln_id>/false-positive', methods=['POST'])
+@error_handler_decorator(error_handler)
+def mark_false_positive(vuln_id):
+    """Mark/unmark vulnerability as false positive"""
+    data = request.get_json() or {}
+    is_false_positive = data.get('is_false_positive', True)
+
+    session = Session()
+    try:
+        vuln = session.query(Vulnerability).filter_by(id=vuln_id).first()
+        if not vuln:
+            return jsonify({"status": "error", "message": "漏洞不存在"}), 404
+
+        vuln.is_false_positive = bool(is_false_positive)
+        session.commit()
+        return jsonify({
+            "status": "success",
+            "vulnerability_id": vuln_id,
+            "is_false_positive": vuln.is_false_positive
+        })
+    except Exception as e:
+        session.rollback()
+        logger.error(f"标记误报失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    finally:
+        session.close()
+
+# ===== 插件系统 API =====
+@app.route('/api/plugins', methods=['GET'])
+@error_handler_decorator(error_handler)
+def list_plugins():
+    """List registered plugins"""
+    try:
+        plugins = plugin_system.get_plugins()
+        return jsonify(plugins)
+    except Exception as e:
+        logger.error(f"获取插件列表失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/plugins/discover', methods=['POST'])
+@error_handler_decorator(error_handler)
+def discover_plugins():
+    """Discover plugins from plugin directory"""
+    try:
+        results = plugin_system.discover_plugins()
+        return jsonify({"status": "success", "results": results})
+    except Exception as e:
+        logger.error(f"插件发现失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/plugins/execute', methods=['POST'])
+@error_handler_decorator(error_handler)
+def execute_plugin():
+    """Execute plugin by name"""
+    try:
+        data = request.get_json()
+        plugin_name = data.get('plugin_name')
+        params = data.get('params', {})
+
+        if not plugin_name:
+            return jsonify({"status": "error", "message": "缺少插件名称"}), 400
+
+        result = plugin_system.execute_plugin(plugin_name, params)
+        if result.get('status') == 'error':
+            return jsonify(result), 400
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"插件执行失败: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/plugins/<plugin_name>/disable', methods=['POST'])
+@error_handler_decorator(error_handler)
+def disable_plugin(plugin_name):
+    """Disable plugin"""
+    try:
+        success = plugin_system.uninstall_plugin(plugin_name)
+        if not success:
+            return jsonify({"status": "error", "message": "插件不存在"}), 404
+        return jsonify({"status": "success", "message": f"插件已禁用: {plugin_name}"})
+    except Exception as e:
+        logger.error(f"禁用插件失败: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':

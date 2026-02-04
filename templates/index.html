@@ -60,6 +60,11 @@
                             <i class="fas fa-chart-line me-2"></i>报告分析
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="nav-plugins">
+                            <i class="fas fa-plug me-2"></i>插件系统
+                        </a>
+                    </li>
                 </ul>
                 
                 <div class="navbar-nav">
@@ -226,12 +231,16 @@
                             <input type="text" class="form-control cyber-input" id="targetUrl" placeholder="https://example.com" required>
                         </div>
                         <div class="mb-3">
+                            <label for="targetIp" class="form-label">目标 IP（可选）</label>
+                            <input type="text" class="form-control cyber-input" id="targetIp" placeholder="192.168.1.10">
+                        </div>
+                        <div class="mb-3">
                             <label for="targetType" class="form-label">目标类型</label>
                             <select class="form-select cyber-input" id="targetType">
-                                <option value="website">网站</option>
-                                <option value="api">API接口</option>
+                                <option value="domain">域名</option>
+                                <option value="url">URL/API</option>
+                                <option value="ip">IP</option>
                                 <option value="network">网络设备</option>
-                                <option value="service">服务</option>
                             </select>
                         </div>
                         <div class="mb-3">
@@ -245,6 +254,61 @@
                     <button type="button" class="btn btn-cyber" id="saveTargetBtn">
                         <i class="fas fa-save me-2"></i>保存并扫描
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑目标模态框 -->
+    <div class="modal fade" id="editTargetModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content cyber-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-edit me-2"></i>编辑扫描目标
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editTargetForm">
+                        <input type="hidden" id="editTargetId">
+                        <div class="mb-3">
+                            <label for="editTargetName" class="form-label">目标名称</label>
+                            <input type="text" class="form-control cyber-input" id="editTargetName">
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetUrl" class="form-label">目标地址</label>
+                            <input type="text" class="form-control cyber-input" id="editTargetUrl">
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetIp" class="form-label">目标 IP</label>
+                            <input type="text" class="form-control cyber-input" id="editTargetIp">
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetType" class="form-label">目标类型</label>
+                            <select class="form-select cyber-input" id="editTargetType">
+                                <option value="domain">域名</option>
+                                <option value="url">URL/API</option>
+                                <option value="ip">IP</option>
+                                <option value="network">网络设备</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editTargetTags" class="form-label">标签</label>
+                            <input type="text" class="form-control cyber-input" id="editTargetTags" placeholder="用逗号分隔">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer d-flex justify-content-between">
+                    <button type="button" class="btn btn-outline-danger" id="deleteTargetBtn">
+                        <i class="fas fa-trash me-2"></i>删除
+                    </button>
+                    <div>
+                        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">取消</button>
+                        <button type="button" class="btn btn-cyber" id="updateTargetBtn">
+                            <i class="fas fa-save me-2"></i>保存
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
